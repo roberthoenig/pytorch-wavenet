@@ -69,7 +69,7 @@ class WavenetTrainer:
                 loss = F.cross_entropy(output.squeeze(), target.squeeze())
                 self.optimizer.zero_grad()
                 loss.backward()
-                loss = loss.data[0]
+                loss = loss.item()
 
                 if self.clip is not None:
                     torch.nn.utils.clip_grad_norm(self.model.parameters(), self.clip)
@@ -86,8 +86,8 @@ class WavenetTrainer:
                         continue
                     time_string = time.strftime("%Y-%m-%d_%H-%M-%S", time.gmtime())
                     torch.save(self.model, self.snapshot_path + '/' + self.snapshot_name + '_' + time_string)
-
-                self.logger.log(step, loss)
+                print(f"step {step}, loss {loss}")
+                # self.logger.log(step, loss)
 
     def validate(self):
         self.model.eval()
@@ -100,7 +100,7 @@ class WavenetTrainer:
 
             output = self.model(x)
             loss = F.cross_entropy(output.squeeze(), target.squeeze())
-            total_loss += loss.data[0]
+            total_loss += loss.item()
 
             predictions = torch.max(output, 1)[1].view(-1)
             correct_pred = torch.eq(target, predictions)

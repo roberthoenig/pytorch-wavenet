@@ -3,6 +3,7 @@ import os.path
 import time
 from wavenet_modules import *
 from audio_data import *
+import time
 
 
 class WaveNetModel(nn.Module):
@@ -145,9 +146,9 @@ class WaveNetModel(nn.Module):
 
             # dilated convolution
             filter = self.filter_convs[i](residual)
-            filter = F.tanh(filter)
+            filter = torch.tanh(filter)
             gate = self.gate_convs[i](residual)
-            gate = F.sigmoid(gate)
+            gate = torch.sigmoid(gate)
             x = filter * gate
 
             # parametrized skip connection
@@ -202,14 +203,19 @@ class WaveNetModel(nn.Module):
         self.eval()
         if first_samples is None:
             first_samples = self.dtype(1).zero_()
-        generated = Variable(first_samples, volatile=True)
+        with torch.no_grad():
+            generated = Variable(first_samples)
 
         num_pad = self.receptive_field - generated.size(0)
         if num_pad > 0:
             generated = constant_pad_1d(generated, self.scope, pad_start=True)
             print("pad zero")
 
+        start = time.time()
         for i in range(num_samples):
+            if i%10 == 0 and 0 < i < num_samples:
+                etr = (((time.time() - start)/i) * (num_samples - i)) / (60*60)
+                print(f"Generated {i} samples. Estimated time remaining: {etr} hours")
             input = Variable(torch.FloatTensor(1, self.classes, self.receptive_field).zero_())
             input = input.scatter_(1, generated[-self.receptive_field:].view(1, -1, self.receptive_field), 1.)
 
@@ -225,11 +231,11 @@ class WaveNetModel(nn.Module):
                 x = Variable(torch.LongTensor([x]))#np.array([x])
             else:
                 x = torch.max(x, 0)[1].float()
-
             generated = torch.cat((generated, x), 0)
 
-        generated = (generated / self.classes) * 2. - 1
-        mu_gen = mu_law_expansion(generated, self.classes)
+        generated = (generated.double() / self.classes) * 2. - 1.
+        mu_gen = mu_law_expansion(generated.double(), self.classes)
+        print("mu_gen", mu_gen)
 
         self.train()
         return mu_gen
@@ -241,6 +247,7 @@ class WaveNetModel(nn.Module):
                       regularize=0.,
                       progress_callback=None,
                       progress_interval=100):
+        print("hdeedddllo")
         self.eval()
         if first_samples is None:
             first_samples = torch.LongTensor(1).zero_() + (self.classes // 2)

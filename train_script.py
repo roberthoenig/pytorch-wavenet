@@ -1,3 +1,8 @@
+import warnings
+# warnings.simplefilter(action='ignore', category=FutureWarning)
+# warnings.simplefilter(action='ignore', category=Warning)
+warnings.filterwarnings("ignore", category=UserWarning) 
+
 import time
 from wavenet_model import *
 from audio_data import WavenetDataset
@@ -8,7 +13,7 @@ from scipy.io import wavfile
 dtype = torch.FloatTensor
 ltype = torch.LongTensor
 
-use_cuda = torch.cuda.is_available()
+use_cuda = torch.cuda.is_available() and False
 if use_cuda:
     print('use gpu')
     dtype = torch.cuda.FloatTensor
@@ -61,11 +66,11 @@ def generate_and_log_samples(step):
     print("audio clips generated")
 
 
-logger = TensorboardLogger(log_interval=200,
-                           validation_interval=400,
-                           generate_interval=800,
-                           generate_function=generate_and_log_samples,
-                           log_dir="logs/chaconne_model")
+# logger = TensorboardLogger(log_interval=200,
+#                            validation_interval=400,
+#                            generate_interval=800,
+#                            generate_function=generate_and_log_samples,
+#                            log_dir="logs/chaconne_model")
 
 trainer = WavenetTrainer(model=model,
                          dataset=data,
@@ -74,11 +79,11 @@ trainer = WavenetTrainer(model=model,
                          snapshot_path='snapshots',
                          snapshot_name='chaconne_model',
                          snapshot_interval=1000,
-                         logger=logger,
+                        #  logger=logger,
                          dtype=dtype,
                          ltype=ltype)
 
 print('start training...')
-trainer.train(batch_size=16,
-              epochs=10,
+trainer.train(batch_size=8,
+              epochs=1,
               continue_training_at_step=0)
