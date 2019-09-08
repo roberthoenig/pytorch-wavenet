@@ -75,11 +75,11 @@ class WaveNetModel(nn.Module):
                 # dilations of this layer
                 self.dilations.append((new_dilation, init_dilation))
 
-                # dilated queues for fast generation
-                self.dilated_queues.append(DilatedQueue(max_length=(kernel_size - 1) * new_dilation + 1,
-                                                        num_channels=residual_channels,
-                                                        dilation=new_dilation,
-                                                        dtype=dtype))
+                # # dilated queues for fast generation
+                # self.dilated_queues.append(DilatedQueue(max_length=(kernel_size - 1) * new_dilation + 1,
+                #                                         num_channels=residual_channels,
+                #                                         dilation=new_dilation,
+                #                                         dtype=dtype))
 
                 # dilated convolutions
                 self.filter_convs.append(nn.Conv1d(in_channels=residual_channels,
@@ -124,7 +124,9 @@ class WaveNetModel(nn.Module):
         self.receptive_field = receptive_field
 
     def wavenet(self, input, dilation_func):
-
+        # print(f"input.shape {input.shape}")
+        # print(f"input.dtype {input.dtype}")
+        # print(f"input[0,:,0] {input[0,:,0]}")
         x = self.start_conv(input)
         skip = 0
 
@@ -142,19 +144,25 @@ class WaveNetModel(nn.Module):
 
             (dilation, init_dilation) = self.dilations[i]
 
+            # print(f"x: {x.shape}")
             residual = dilation_func(x, dilation, init_dilation, i)
+            # print(f"residual: {residual.shape}")
 
             # dilated convolution
             filter = self.filter_convs[i](residual)
             filter = torch.tanh(filter)
             gate = self.gate_convs[i](residual)
             gate = torch.sigmoid(gate)
+            # print(f"x.shape before conv: {x.shape}")
             x = filter * gate
+            # print(f"x.shape after conv: {x.shape}")
 
             # parametrized skip connection
             s = x
+            # print(f"s.shape before dilate: {s.shape}")
             if x.size(2) != 1:
                  s = dilate(x, 1, init_dilation=dilation)
+            # print(f"s.shape after dilate: {s.shape}")
             s = self.skip_convs[i](s)
             try:
                 skip = skip[:, :, -s.size(2):]

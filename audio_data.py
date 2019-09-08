@@ -21,7 +21,8 @@ class WavenetDataset(torch.utils.data.Dataset):
                  normalize=False,
                  dtype=np.uint8,
                  train=True,
-                 test_stride=100):
+                 test_stride=100,
+                 one_hot=True):
 
         #           |----receptive_field----|
         #                                 |--output_length--|
@@ -33,6 +34,7 @@ class WavenetDataset(torch.utils.data.Dataset):
         self._test_stride = test_stride
         self.target_length = target_length
         self.classes = classes
+        self.one_hot=one_hot
 
         if not os.path.isfile(dataset_file):
             assert file_location is not None, "no location for dataset files specified"
@@ -120,7 +122,10 @@ class WavenetDataset(torch.utils.data.Dataset):
         one_hot = torch.FloatTensor(self.classes, self._item_length).zero_()
         one_hot.scatter_(0, example[:self._item_length].unsqueeze(0), 1.)
         target = example[-self.target_length:].unsqueeze(0)
-        return one_hot, target
+        if self.one_hot:
+            return one_hot, target
+        else:
+            return example[:self._item_length], target
 
     def __len__(self):
         test_length = math.floor(self._length / self._test_stride)
