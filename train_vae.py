@@ -84,6 +84,9 @@ dataset = WavenetDataset(dataset_file='train_samples/bach_chaconne/dataset.npz',
                       test_stride=500,
                       one_hot=False)
 print('the dataset has ' + str(len(dataset)) + ' items')
+print(f'each item has length {dataset._item_length}')
+n_parameters = model.encoder.wavenet.parameter_count() + model.decoder.wavenet.parameter_count()
+print(f'The WaveNetVAE has {n_parameters} parameters')
 
 print('start training...')
 batch_size=8
