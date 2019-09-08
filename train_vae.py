@@ -87,10 +87,10 @@ print('the dataset has ' + str(len(dataset)) + ' items')
 
 print('start training...')
 batch_size=8
-epochs=10
+epochs=1
 continue_training_at_step=0
 snapshot_name='chaconne_model'
-snapshot_interval=1
+snapshot_interval=2000
 snapshot_path='snapshots'
 weight_decay = 0
 lr=0.0001
@@ -109,7 +109,8 @@ if not load_path == "":
     (_, _, continue_training_at_step) = load_checkpoint(load_path, model, optimizer)
 
 device = torch.device('cuda')
-model.to(device)
+torch.set_default_tensor_type(torch.cuda.FloatTensor)
+model = model.to(device)
 
 writer = SummaryWriter()
 step = continue_training_at_step
@@ -118,7 +119,7 @@ for current_epoch in range(epochs):
     print("epoch", current_epoch)
     tic = time.time()
     for (x, target) in iter(dataloader):
-        x.to(device)
+        x = x.to(device)
         p_x, q_z = model(x, gumbel_softmax_temperature)
         loss = model.loss(p_x, x, q_z)
         optimizer.zero_grad()
