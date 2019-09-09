@@ -3,6 +3,8 @@ warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=FutureWarning) 
 
 import time
+import argparse
+import json
 
 from wavenet_model import *
 from wavenet_modules import *
@@ -34,22 +36,31 @@ def save_checkpoint(model, optimizer, step, filepath):
                 'optimizer': optimizer.state_dict(),
                 }, filepath)
 
-kwargs = {
-    'layers': 4,
-    'blocks': 2,
-    'dilation_channels': 16,
-    'residual_channels': 16,
-    'skip_channels': 64,
-    'end_channels': 64,
-    'output_length': 16,
-    'classes': 256,
-    'dtype': dtype,
-    'bias': True
-}
+parser = argparse.ArgumentParser()
+parser.add_argument('-c', '--config', type=str,
+                    help='JSON file for configuration', required=True)
+args = parser.parse_args()
+with open(args.config) as f:
+    data = f.read()
+config = json.loads(data)
+wavenet_args = config["wavenet_args"]
+train_args = config["train_args"]
+batch_size = train_args["batch_size"]
+epochs = train_args["epochs"]
+continue_training_at_step = train_args["continue_training_at_step"]
+snapshot_name = train_args["snapshot_name"]
+snapshot_interval = train_args["snapshot_interval"]
+snapshot_path = train_args["snapshot_path"]
+weight_decay  = train_args["weight_decay"]
+lr = train_args["lr"]
+gumbel_softmax_temperature  = train_args["gumbel_softmax_temperature"]
+device_name = config["device"]
+gpu_index = config["gpu_index"]
+
 class WaveNetEncoder(nn.Module):
     def __init__(self):
         super().__init__()
-        self.wavenet = WaveNetModel(**kwargs)
+        self.wavenet = WaveNetModel(**wavenet_args)
         self.padding_left = self.wavenet.receptive_field
 
     def forward(self, input):
@@ -63,7 +74,7 @@ class WaveNetEncoder(nn.Module):
 class WaveNetDecoder(nn.Module):
     def __init__(self):
         super().__init__()
-        self.wavenet = WaveNetModel(**kwargs)
+        self.wavenet = WaveNetModel(**wavenet_args)
         self.padding_left = self.wavenet.receptive_field
 
     def forward(self, input):
@@ -89,31 +100,28 @@ n_parameters = model.encoder.wavenet.parameter_count() + model.decoder.wavenet.p
 print(f'The WaveNetVAE has {n_parameters} parameters')
 
 print('start training...')
-batch_size=8
-epochs=1
-continue_training_at_step=0
-snapshot_name='chaconne_model'
-snapshot_interval=2000
-snapshot_path='snapshots'
-weight_decay = 0
-lr=0.0001
-gumbel_softmax_temperature = 1.
 optimizer=optim.Adam(params=model.parameters(), lr=lr, weight_decay=weight_decay)
 clip = None
-dataloader = torch.utils.data.DataLoader(
-    dataset,
-    batch_size=batch_size,
-    shuffle=True,
-    pin_memory=True,
-)
+
 
 load_path = ""
 if not load_path == "":
     (_, _, continue_training_at_step) = load_checkpoint(load_path, model, optimizer)
 
-device = torch.device('cuda')
-torch.set_default_tensor_type(torch.cuda.FloatTensor)
-model = model.to(device)
+pin_memory = False
+device = torch.device(device_name)
+if not device_name == "cpu":
+    torch.cuda.set_device(gpu_index)
+    torch.set_default_tensor_type(torch.cuda.FloatTensor)
+    model = model.to(device)
+    pin_memory = True
+
+dataloader = torch.utils.data.DataLoader(
+    dataset,
+    batch_size=batch_size,
+    shuffle=True,
+    pin_memory=pin_memory,
+)
 
 writer = SummaryWriter()
 step = continue_training_at_step
