@@ -123,7 +123,7 @@ dataloader = torch.utils.data.DataLoader(
     pin_memory=pin_memory,
 )
 
-writer = SummaryWriter()
+writer = SummaryWriter(comment="_"+snapshot_name)
 step = continue_training_at_step
 model.train()
 for current_epoch in range(epochs):
