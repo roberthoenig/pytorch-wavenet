@@ -16,6 +16,9 @@ import torch.optim as optim
 import torch.utils.data
 import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
+from torch.utils.data import Dataset
+
+from apex import amp
 
 dtype = torch.FloatTensor
 ltype = torch.LongTensor
@@ -87,15 +90,26 @@ model = VAE(
     WaveNetEncoder(),
     WaveNetDecoder(),
 )
-    
-dataset = WavenetDataset(dataset_file='train_samples/bach_chaconne/dataset.npz',
-                      item_length=model.encoder.wavenet.receptive_field*4,
-                      target_length=model.encoder.wavenet.output_length,
-                      file_location='train_samples/bach_chaconne',
-                      test_stride=500,
-                      one_hot=False)
+
+class AudioDataset(Dataset):
+    def __init__(self, filename, len_sample):
+        """
+        filename: Path to .pt file containing the audio data
+        """
+        self.data = torch.load(filename)
+        self.length = int(len(self.data) / len_sample)
+        self.data = self.data[:self.length*len_sample]
+        self.data = self.data.reshape(self.length, -1)
+        self.len_sample = len_sample
+    def __len__(self):
+        return self.length
+    def __getitem__(self, idx):
+        return self.data[idx]
+
+dataset = AudioDataset("wav_audio/wav_tensor.pt", model.encoder.wavenet.receptive_field*4)        
+
 print('the dataset has ' + str(len(dataset)) + ' items')
-print(f'each item has length {dataset._item_length}')
+print(f'each item has length {dataset.len_sample}')
 n_parameters = model.encoder.wavenet.parameter_count() + model.decoder.wavenet.parameter_count()
 print(f'The WaveNetVAE has {n_parameters} parameters')
 
@@ -126,15 +140,21 @@ dataloader = torch.utils.data.DataLoader(
 writer = SummaryWriter(comment="_"+snapshot_name)
 step = continue_training_at_step
 model.train()
+
+### APEX MIXED-PRECISION
+# model, optimizer = amp.initialize(model, optimizer, opt_level="O0")
+
 for current_epoch in range(epochs):
     print("epoch", current_epoch)
     tic = time.time()
-    for (x, target) in iter(dataloader):
-        x = x.to(device)
+    for x in iter(dataloader):
+        x = x.long().to(device)
         p_x, q_z = model(x, gumbel_softmax_temperature)
         loss = model.loss(p_x, x, q_z)
         optimizer.zero_grad()
         loss.backward()
+        # with amp.scale_loss(loss, optimizer) as scaled_loss:
+            # scaled_loss.backward()
         loss = loss.item()
         if clip is not None:
             torch.nn.utils.clip_grad_norm(model.parameters(), clip)
