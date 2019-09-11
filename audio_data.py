@@ -7,7 +7,22 @@ import torch.utils.data
 import numpy as np
 import librosa as lr
 import bisect
+from torch.utils.data import Dataset
 
+class AudioDataset(Dataset):
+    def __init__(self, filename, len_sample):
+        """
+        filename: Path to .pt file containing the audio data
+        """
+        self.data = torch.load(filename)
+        self.length = int(len(self.data) / len_sample)
+        self.data = self.data[:self.length*len_sample]
+        self.data = self.data.reshape(self.length, -1)
+        self.len_sample = len_sample
+    def __len__(self):
+        return self.length
+    def __getitem__(self, idx):
+        return self.data[idx]
 
 class WavenetDataset(torch.utils.data.Dataset):
     def __init__(self,

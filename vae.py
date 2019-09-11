@@ -2,6 +2,8 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 from torch.distributions.categorical import Categorical
+from wavenet_model import *
+
 
 def sample_gumbel(shape, eps=1e-20):
     U = torch.rand(shape)
@@ -76,3 +78,29 @@ class VAE(nn.Module):
         log_ratio = F.log_softmax(q_z, dim=1) + torch.log(torch.tensor(q_z.size(1)).float())
         kl_divergence = torch.sum(F.softmax(q_z, dim=1) * log_ratio) / x.size(0)
         return cross_entropy + kl_divergence
+
+class WaveNetEncoder(nn.Module):
+    def __init__(self, wavenet_args):
+        super().__init__()
+        self.wavenet = WaveNetModel(**wavenet_args)
+        self.padding_left = self.wavenet.receptive_field
+
+    def forward(self, input):
+        padded_input = F.pad(input, (self.padding_left, 0))
+        one_hot_padded_input = torch.zeros(padded_input.size(0), self.wavenet.classes, padded_input.size(1))
+        one_hot_padded_input.scatter_(1, padded_input.unsqueeze(1), 1.)
+        padded_output = self.wavenet.wavenet(one_hot_padded_input, self.wavenet.wavenet_dilate)
+        output = padded_output[:, :, -input.size(-1):]
+        return output
+
+class WaveNetDecoder(nn.Module):
+    def __init__(self, wavenet_args):
+        super().__init__()
+        self.wavenet = WaveNetModel(**wavenet_args)
+        self.padding_left = self.wavenet.receptive_field
+
+    def forward(self, input):
+        padded_input = F.pad(input, (self.padding_left, 0))
+        padded_output = self.wavenet.wavenet(padded_input, self.wavenet.wavenet_dilate)
+        output = padded_output[:, :, -input.size(-1):]
+        return output

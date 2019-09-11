@@ -8,17 +8,16 @@ import json
 
 from wavenet_model import *
 from wavenet_modules import *
-from audio_data import WavenetDataset
-from vae import VAE
+from audio_data import WavenetDataset, AudioDataset
+from vae import VAE, WaveNetEncoder, WaveNetDecoder
 
 import torch
 import torch.optim as optim
 import torch.utils.data
 import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
-from torch.utils.data import Dataset
 
-from apex import amp
+# from apex import amp
 
 dtype = torch.FloatTensor
 ltype = torch.LongTensor
@@ -56,55 +55,17 @@ snapshot_interval = train_args["snapshot_interval"]
 snapshot_path = train_args["snapshot_path"]
 weight_decay  = train_args["weight_decay"]
 lr = train_args["lr"]
-gumbel_softmax_temperature  = train_args["gumbel_softmax_temperature"]
 device_name = config["device"]
 gpu_index = config["gpu_index"]
 
-class WaveNetEncoder(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.wavenet = WaveNetModel(**wavenet_args)
-        self.padding_left = self.wavenet.receptive_field
-
-    def forward(self, input):
-        padded_input = F.pad(input, (self.padding_left, 0))
-        one_hot_padded_input = torch.zeros(padded_input.size(0), self.wavenet.classes, padded_input.size(1))
-        one_hot_padded_input.scatter_(1, padded_input.unsqueeze(1), 1.)
-        padded_output = self.wavenet.wavenet(one_hot_padded_input, self.wavenet.wavenet_dilate)
-        output = padded_output[:, :, -input.size(-1):]
-        return output
-
-class WaveNetDecoder(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.wavenet = WaveNetModel(**wavenet_args)
-        self.padding_left = self.wavenet.receptive_field
-
-    def forward(self, input):
-        padded_input = F.pad(input, (self.padding_left, 0))
-        padded_output = self.wavenet.wavenet(padded_input, self.wavenet.wavenet_dilate)
-        output = padded_output[:, :, -input.size(-1):]
-        return output
+gumbel_softmax_temperature  = train_args["gumbel_softmax_temperature"]
+temp_min = 0.4
+ANNEAL_RATE = 0.00003
 
 model = VAE(
-    WaveNetEncoder(),
-    WaveNetDecoder(),
+    WaveNetEncoder(wavenet_args),
+    WaveNetDecoder(wavenet_args),
 )
-
-class AudioDataset(Dataset):
-    def __init__(self, filename, len_sample):
-        """
-        filename: Path to .pt file containing the audio data
-        """
-        self.data = torch.load(filename)
-        self.length = int(len(self.data) / len_sample)
-        self.data = self.data[:self.length*len_sample]
-        self.data = self.data.reshape(self.length, -1)
-        self.len_sample = len_sample
-    def __len__(self):
-        return self.length
-    def __getitem__(self, idx):
-        return self.data[idx]
 
 dataset = AudioDataset("wav_audio/wav_tensor.pt", model.encoder.wavenet.receptive_field*4)        
 
@@ -148,6 +109,9 @@ for current_epoch in range(epochs):
     print("epoch", current_epoch)
     tic = time.time()
     for x in iter(dataloader):
+        if step % 100 == 0:
+            gumbel_softmax_temperature = np.maximum(gumbel_softmax_temperature * np.exp(-ANNEAL_RATE * step), temp_min)
+
         x = x.long().to(device)
         p_x, q_z = model(x, gumbel_softmax_temperature)
         loss = model.loss(p_x, x, q_z)
@@ -172,4 +136,4 @@ for current_epoch in range(epochs):
             path = snapshot_path + '/' + snapshot_name + '_' + str(step)
             save_checkpoint(model, optimizer, step, path)
         writer.add_scalar('Loss/train', loss, global_step=step)
-        print(f"step {step}, loss {loss}")
+        print(f"step {step}, loss {loss}, gumbel_softmax_temperature {gumbel_softmax_temperature}")
