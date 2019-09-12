@@ -7,7 +7,7 @@
         "skip_channels": 128,
         "end_channels": 128,
         "in_classes": 256,
-        "out_classes": 10,
+        "out_classes": 256,
         "bias": true
     },
     "decoder_wavenet_args": {
@@ -17,7 +17,7 @@
         "residual_channels": 32,
         "skip_channels": 128,
         "end_channels": 128,
-        "in_classes": 10,
+        "in_classes": 256,
         "out_classes": 256,
         "bias": true
     },
@@ -34,7 +34,7 @@
         "temp_min": 0.1,
         "anneal_rate": 0.000001
     },
-    "device": "cpu",
+    "device": "cuda",
     "gpu_index": 0,
-    "dataset_path": "wav_audio/small_wav_tensor.pt"
+    "dataset_path": "wav_audio/wav_tensor.pt"
 }
