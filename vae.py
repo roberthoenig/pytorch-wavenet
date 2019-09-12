@@ -87,7 +87,7 @@ class WaveNetEncoder(nn.Module):
 
     def forward(self, input):
         padded_input = F.pad(input, (self.padding_left, 0))
-        one_hot_padded_input = torch.zeros(padded_input.size(0), self.wavenet.classes, padded_input.size(1))
+        one_hot_padded_input = torch.zeros(padded_input.size(0), self.wavenet.in_classes, padded_input.size(1))
         one_hot_padded_input.scatter_(1, padded_input.unsqueeze(1), 1.)
         padded_output = self.wavenet.wavenet(one_hot_padded_input, self.wavenet.wavenet_dilate)
         output = padded_output[:, :, -input.size(-1):]

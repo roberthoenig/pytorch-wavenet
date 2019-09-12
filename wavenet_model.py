@@ -33,7 +33,8 @@ class WaveNetModel(nn.Module):
                  residual_channels=32,
                  skip_channels=256,
                  end_channels=256,
-                 classes=256,
+                 in_classes=256,
+                 out_classes=256,
                  output_length=32,
                  kernel_size=2,
                  dtype=torch.FloatTensor,
@@ -46,7 +47,7 @@ class WaveNetModel(nn.Module):
         self.dilation_channels = dilation_channels
         self.residual_channels = residual_channels
         self.skip_channels = skip_channels
-        self.classes = classes
+        self.in_classes = in_classes
         self.kernel_size = kernel_size
         self.dtype = dtype
 
@@ -63,7 +64,7 @@ class WaveNetModel(nn.Module):
         self.skip_convs = nn.ModuleList()
 
         # 1x1 convolution to create channels
-        self.start_conv = nn.Conv1d(in_channels=self.classes,
+        self.start_conv = nn.Conv1d(in_channels=self.in_classes,
                                     out_channels=residual_channels,
                                     kernel_size=1,
                                     bias=bias)
@@ -115,7 +116,7 @@ class WaveNetModel(nn.Module):
                                   bias=True)
 
         self.end_conv_2 = nn.Conv1d(in_channels=end_channels,
-                                    out_channels=classes,
+                                    out_channels=out_classes,
                                     kernel_size=1,
                                     bias=True)
 
@@ -203,132 +204,6 @@ class WaveNetModel(nn.Module):
         x = x.transpose(1, 2).contiguous()
         x = x.view(n * l, c)
         return x
-
-    def generate(self,
-                 num_samples,
-                 first_samples=None,
-                 temperature=1.):
-        self.eval()
-        if first_samples is None:
-            first_samples = self.dtype(1).zero_()
-        with torch.no_grad():
-            generated = Variable(first_samples)
-
-        num_pad = self.receptive_field - generated.size(0)
-        if num_pad > 0:
-            generated = constant_pad_1d(generated, self.scope, pad_start=True)
-            print("pad zero")
-
-        start = time.time()
-        for i in range(num_samples):
-            if i%10 == 0 and 0 < i < num_samples:
-                etr = (((time.time() - start)/i) * (num_samples - i)) / (60*60)
-                print(f"Generated {i} samples. Estimated time remaining: {etr} hours")
-            input = Variable(torch.FloatTensor(1, self.classes, self.receptive_field).zero_())
-            input = input.scatter_(1, generated[-self.receptive_field:].view(1, -1, self.receptive_field), 1.)
-
-            x = self.wavenet(input,
-                             dilation_func=self.wavenet_dilate)[:, :, -1].squeeze()
-
-            if temperature > 0:
-                x /= temperature
-                prob = F.softmax(x, dim=0)
-                prob = prob.cpu()
-                np_prob = prob.data.numpy()
-                x = np.random.choice(self.classes, p=np_prob)
-                x = Variable(torch.LongTensor([x]))#np.array([x])
-            else:
-                x = torch.max(x, 0)[1].float()
-            generated = torch.cat((generated, x), 0)
-
-        generated = (generated.double() / self.classes) * 2. - 1.
-        mu_gen = mu_law_expansion(generated.double(), self.classes)
-        print("mu_gen", mu_gen)
-
-        self.train()
-        return mu_gen
-
-    def generate_fast(self,
-                      num_samples,
-                      first_samples=None,
-                      temperature=1.,
-                      regularize=0.,
-                      progress_callback=None,
-                      progress_interval=100):
-        print("hdeedddllo")
-        self.eval()
-        if first_samples is None:
-            first_samples = torch.LongTensor(1).zero_() + (self.classes // 2)
-        first_samples = Variable(first_samples)
-
-        # reset queues
-        for queue in self.dilated_queues:
-            queue.reset()
-
-        num_given_samples = first_samples.size(0)
-        total_samples = num_given_samples + num_samples
-
-        input = Variable(torch.FloatTensor(1, self.classes, 1).zero_())
-        input = input.scatter_(1, first_samples[0:1].view(1, -1, 1), 1.)
-
-        # fill queues with given samples
-        for i in range(num_given_samples - 1):
-            x = self.wavenet(input,
-                             dilation_func=self.queue_dilate)
-            input.zero_()
-            input = input.scatter_(1, first_samples[i + 1:i + 2].view(1, -1, 1), 1.).view(1, self.classes, 1)
-
-            # progress feedback
-            if i % progress_interval == 0:
-                if progress_callback is not None:
-                    progress_callback(i, total_samples)
-
-        # generate new samples
-        generated = np.array([])
-        regularizer = torch.pow(Variable(torch.arange(self.classes)) - self.classes / 2., 2)
-        regularizer = regularizer.squeeze() * regularize
-        tic = time.time()
-        for i in range(num_samples):
-            x = self.wavenet(input,
-                             dilation_func=self.queue_dilate).squeeze()
-
-            x -= regularizer
-
-            if temperature > 0:
-                # sample from softmax distribution
-                x /= temperature
-                prob = F.softmax(x, dim=0)
-                prob = prob.cpu()
-                np_prob = prob.data.numpy()
-                x = np.random.choice(self.classes, p=np_prob)
-                x = np.array([x])
-            else:
-                # convert to sample value
-                x = torch.max(x, 0)[1][0]
-                x = x.cpu()
-                x = x.data.numpy()
-
-            o = (x / self.classes) * 2. - 1
-            generated = np.append(generated, o)
-
-            # set new input
-            x = Variable(torch.from_numpy(x).type(torch.LongTensor))
-            input.zero_()
-            input = input.scatter_(1, x.view(1, -1, 1), 1.).view(1, self.classes, 1)
-
-            if (i+1) == 100:
-                toc = time.time()
-                print("one generating step does take approximately " + str((toc - tic) * 0.01) + " seconds)")
-
-            # progress feedback
-            if (i + num_given_samples) % progress_interval == 0:
-                if progress_callback is not None:
-                    progress_callback(i + num_given_samples, total_samples)
-
-        self.train()
-        mu_gen = mu_law_expansion(generated, self.classes)
-        return mu_gen
-
 
     def parameter_count(self):
         par = list(self.parameters())

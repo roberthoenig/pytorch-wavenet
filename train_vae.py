@@ -45,7 +45,8 @@ args = parser.parse_args()
 with open(args.config) as f:
     data = f.read()
 config = json.loads(data)
-wavenet_args = config["wavenet_args"]
+encoder_wavenet_args = config["encoder_wavenet_args"]
+decoder_wavenet_args = config["decoder_wavenet_args"]
 train_args = config["train_args"]
 batch_size = train_args["batch_size"]
 epochs = train_args["epochs"]
@@ -57,17 +58,18 @@ weight_decay  = train_args["weight_decay"]
 lr = train_args["lr"]
 device_name = config["device"]
 gpu_index = config["gpu_index"]
+dataset_path = config["dataset_path"]
 
 gumbel_softmax_temperature  = train_args["gumbel_softmax_temperature"]
 temp_min = train_args["temp_min"]
 anneal_rate = train_args["anneal_rate"]
 
 model = VAE(
-    WaveNetEncoder(wavenet_args),
-    WaveNetDecoder(wavenet_args),
+    WaveNetEncoder(encoder_wavenet_args),
+    WaveNetDecoder(decoder_wavenet_args),
 )
 
-dataset = AudioDataset("wav_audio/wav_tensor.pt", model.encoder.wavenet.receptive_field*4)        
+dataset = AudioDataset(dataset_path, model.encoder.wavenet.receptive_field*4)        
 
 print('the dataset has ' + str(len(dataset)) + ' items')
 print(f'each item has length {dataset.len_sample}')
