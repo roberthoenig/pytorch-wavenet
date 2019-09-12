@@ -59,8 +59,8 @@ device_name = config["device"]
 gpu_index = config["gpu_index"]
 
 gumbel_softmax_temperature  = train_args["gumbel_softmax_temperature"]
-temp_min = 0.4
-ANNEAL_RATE = 0.00003
+temp_min = train_args["temp_min"]
+anneal_rate = train_args["anneal_rate"]
 
 model = VAE(
     WaveNetEncoder(wavenet_args),
@@ -110,7 +110,7 @@ for current_epoch in range(epochs):
     tic = time.time()
     for x in iter(dataloader):
         if step % 100 == 0:
-            gumbel_softmax_temperature = np.maximum(gumbel_softmax_temperature * np.exp(-ANNEAL_RATE * step), temp_min)
+            gumbel_softmax_temperature = np.maximum(1. - anneal_rate * step, temp_min)
 
         x = x.long().to(device)
         p_x, q_z = model(x, gumbel_softmax_temperature)

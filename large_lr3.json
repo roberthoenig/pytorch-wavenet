@@ -1,7 +1,7 @@
 {
     "wavenet_args": {
         "layers": 10,
-        "blocks": 4,
+        "blocks": 3,
         "dilation_channels": 32,
         "residual_channels": 32,
         "skip_channels": 256,
