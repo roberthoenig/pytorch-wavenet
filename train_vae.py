@@ -10,6 +10,7 @@ from wavenet_model import *
 from wavenet_modules import *
 from audio_data import WavenetDataset, AudioDataset
 from vae import VAE, WaveNetEncoder, WaveNetDecoder
+from vae_gaussian import GaussianVAE, GaussianWaveNetEncoder, GaussianWaveNetDecoder
 
 import torch
 import torch.optim as optim
@@ -60,15 +61,21 @@ device_name = config["device"]
 gpu_index = config["gpu_index"]
 dataset_path = config["dataset_path"]
 load_path = config["load_path"]
+type = config.get("type", "categorical")
 
-gumbel_softmax_temperature  = train_args["gumbel_softmax_temperature"]
-temp_min = train_args["temp_min"]
-anneal_rate = train_args["anneal_rate"]
-
-model = VAE(
-    WaveNetEncoder(encoder_wavenet_args),
-    WaveNetDecoder(decoder_wavenet_args),
-)
+if type == "categorical":
+    gumbel_softmax_temperature  = train_args["gumbel_softmax_temperature"]
+    temp_min = train_args["temp_min"]
+    anneal_rate = train_args["anneal_rate"]
+    model = VAE(
+        WaveNetEncoder(encoder_wavenet_args),
+        WaveNetDecoder(decoder_wavenet_args),
+    )
+elif type == "gaussian":
+    model = GaussianVAE(
+        GaussianWaveNetEncoder(encoder_wavenet_args),
+        GaussianWaveNetDecoder(decoder_wavenet_args),
+    )
 
 dataset = AudioDataset(dataset_path, model.encoder.wavenet.receptive_field*4)        
 
@@ -113,12 +120,17 @@ for current_epoch in range(epochs):
     print("epoch", current_epoch)
     tic = time.time()
     for x in iter(dataloader):
-        if step % 100 == 0:
-            gumbel_softmax_temperature = np.maximum(1. - anneal_rate * step, temp_min)
-
         x = x.long().to(device)
-        p_x, q_z = model(x, gumbel_softmax_temperature)
-        loss = model.loss(p_x, x, q_z)
+        
+        if type == "categorical":
+            if step % 100 == 0:
+                gumbel_softmax_temperature = np.maximum(1. - anneal_rate * step, temp_min)
+            p_x, q_z = model(x, gumbel_softmax_temperature)
+            loss = model.loss(p_x, x, q_z)
+        elif type == "gaussian":
+            p_x, mu, logvar = model(x)
+            loss = model.loss(p_x, x, mu, logvar)
+        
         optimizer.zero_grad()
         loss.backward()
         # with amp.scale_loss(loss, optimizer) as scaled_loss:
@@ -141,6 +153,10 @@ for current_epoch in range(epochs):
             save_checkpoint(model, optimizer, step, path)
         if step % 100 == 0:
             writer.add_scalar('Loss/train', loss, global_step=step)
+        if type == "categorical":
             print(f"step {step}, loss {loss}, gumbel_softmax_temperature {gumbel_softmax_temperature}")
+        elif type == "gaussian":
+            print(f"step {step}, loss {loss}")
+
 
 print("finished")
