@@ -22,14 +22,14 @@ from torch.utils.tensorboard import SummaryWriter
 dtype = torch.FloatTensor
 ltype = torch.LongTensor
 
-def load_checkpoint(checkpoint_path, model, optimizer):
+def load_checkpoint(checkpoint_path, model):
     assert os.path.isfile(checkpoint_path)
     checkpoint_dict = torch.load(checkpoint_path, map_location='cpu')
     step = checkpoint_dict['step']
-    optimizer.load_state_dict(checkpoint_dict['optimizer'])
+    # optimizer.load_state_dict()
     model.load_state_dict(checkpoint_dict['model'])
     print("Loaded checkpoint '{}' (step {})" .format(checkpoint_path, step))
-    return model, optimizer, step
+    return model, checkpoint_dict['optimizer'], step
 
 def save_checkpoint(model, optimizer, step, filepath):
     print("Saving model and optimizer state at step {} to {}".format(step, filepath))
@@ -59,6 +59,7 @@ lr = train_args["lr"]
 device_name = config["device"]
 gpu_index = config["gpu_index"]
 dataset_path = config["dataset_path"]
+load_path = config["load_path"]
 
 gumbel_softmax_temperature  = train_args["gumbel_softmax_temperature"]
 temp_min = train_args["temp_min"]
@@ -77,13 +78,10 @@ n_parameters = model.encoder.wavenet.parameter_count() + model.decoder.wavenet.p
 print(f'The WaveNetVAE has {n_parameters} parameters')
 
 print('start training...')
-optimizer=optim.Adam(params=model.parameters(), lr=lr, weight_decay=weight_decay)
 clip = None
 
-
-load_path = ""
 if not load_path == "":
-    (_, _, continue_training_at_step) = load_checkpoint(load_path, model, optimizer)
+    (_, optimizer_state_dict, continue_training_at_step) = load_checkpoint(load_path, model)
 
 pin_memory = False
 device = torch.device(device_name)
@@ -92,6 +90,10 @@ if not device_name == "cpu":
     torch.set_default_tensor_type(torch.cuda.FloatTensor)
     model = model.to(device)
     pin_memory = True
+
+optimizer=optim.Adam(params=model.parameters(), lr=lr, weight_decay=weight_decay)
+if "optimizer_state_dict" in globals():
+    optimizer.load_state_dict(optimizer_state_dict)
 
 dataloader = torch.utils.data.DataLoader(
     dataset,
@@ -137,5 +139,8 @@ for current_epoch in range(epochs):
             print("taking a snapshot")
             path = snapshot_path + '/' + snapshot_name + '_' + str(step)
             save_checkpoint(model, optimizer, step, path)
-        writer.add_scalar('Loss/train', loss, global_step=step)
-        print(f"step {step}, loss {loss}, gumbel_softmax_temperature {gumbel_softmax_temperature}")
+        if step % 100 == 0:
+            writer.add_scalar('Loss/train', loss, global_step=step)
+            print(f"step {step}, loss {loss}, gumbel_softmax_temperature {gumbel_softmax_temperature}")
+
+print("finished")
