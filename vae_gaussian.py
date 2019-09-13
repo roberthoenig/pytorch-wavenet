@@ -77,9 +77,10 @@ class ContinuousToOneHot(nn.Module):
         x: (n_batches, length), dtype: float
         returns: (n_batches, n_classes, length), dtype: float
         '''
-        dist = torch.distributions.normal.Normal(x.unsqueeze(-1), 1.)
-        positions = torch.arange(0, self.n_classes).float()
-        positions_shifted = positions + 1
+        x += .5
+        dist = torch.distributions.normal.Normal(x.unsqueeze(-1), 0.05)
+        positions = torch.arange(0, self.n_classes).float() / self.n_classes
+        positions_shifted = positions + 1/self.n_classes
         cdfs = dist.cdf(positions.unsqueeze(0).unsqueeze(0))
         cdfs_shifted = dist.cdf(positions_shifted.unsqueeze(0).unsqueeze(0))
         cdfs[:, :, 0] = 0
