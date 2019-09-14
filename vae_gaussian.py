@@ -52,9 +52,11 @@ class GaussianVAE(nn.Module):
         return cross_entropy + kl_divergence
 
 class GaussianWaveNetEncoder(nn.Module):
-    def __init__(self, wavenet_args):
+    def __init__(self, wavenet_args, use_continuous_one_hot=True):
         super().__init__()
-        assert wavenet_args["out_classes"] == 2
+        self.use_continuous_one_hot = use_continuous_one_hot
+        if self.use_continuous_one_hot:
+            assert wavenet_args["out_classes"] == 2
         self.wavenet = WaveNetModel(**wavenet_args)
         self.padding_left = self.wavenet.receptive_field
 
@@ -64,8 +66,12 @@ class GaussianWaveNetEncoder(nn.Module):
         one_hot_padded_input.scatter_(1, padded_input.unsqueeze(1), 1.)
         padded_output = self.wavenet.wavenet(one_hot_padded_input, self.wavenet.wavenet_dilate)
         output = padded_output[:, :, -input.size(-1):]
-        mu = output[:, 0, :]
-        logvar = output[:, 1, :]
+        if self.use_continuous_one_hot:
+            mu = output[:, 0, :]
+            logvar = output[:, 1, :]
+        else:
+            mu = output[:, :self.wavenet.out_classes//2, :]
+            logvar = output[:, self.wavenet.out_classes//2:, :]
         return mu, logvar
 
 class ContinuousToOneHot(nn.Module):
@@ -89,15 +95,20 @@ class ContinuousToOneHot(nn.Module):
         return continuous_one_hot.transpose(1, 2)
 
 class GaussianWaveNetDecoder(nn.Module):
-    def __init__(self, wavenet_args):
+    def __init__(self, wavenet_args, use_continuous_one_hot=True):
         super().__init__()
         self.wavenet = WaveNetModel(**wavenet_args)
         self.padding_left = self.wavenet.receptive_field
-        self.continuous_to_one_hot = ContinuousToOneHot(wavenet_args["in_classes"])
+        self.use_continuous_one_hot = use_continuous_one_hot
+        if self.use_continuous_one_hot:
+            self.continuous_to_one_hot = ContinuousToOneHot(wavenet_args["in_classes"])
 
     def forward(self, input):
         padded_input = F.pad(input, (self.padding_left, 0))
-        one_hot_padded_input = self.continuous_to_one_hot(padded_input)
+        if self.use_continuous_one_hot:
+            one_hot_padded_input = self.continuous_to_one_hot(padded_input)
+        else:
+            one_hot_padded_input = padded_input
         padded_output = self.wavenet.wavenet(one_hot_padded_input, self.wavenet.wavenet_dilate)
         output = padded_output[:, :, -input.size(-1):]
         return output

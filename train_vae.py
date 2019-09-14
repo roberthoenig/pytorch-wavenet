@@ -72,9 +72,10 @@ if type == "categorical":
         WaveNetDecoder(decoder_wavenet_args),
     )
 elif type == "gaussian":
+    use_continuous_one_hot = config["use_continuous_one_hot"]
     model = GaussianVAE(
-        GaussianWaveNetEncoder(encoder_wavenet_args),
-        GaussianWaveNetDecoder(decoder_wavenet_args),
+        GaussianWaveNetEncoder(encoder_wavenet_args, use_continuous_one_hot),
+        GaussianWaveNetDecoder(decoder_wavenet_args, use_continuous_one_hot),
     )
 
 dataset = AudioDataset(dataset_path, model.encoder.wavenet.receptive_field*4)        

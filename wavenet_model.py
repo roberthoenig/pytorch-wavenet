@@ -48,6 +48,7 @@ class WaveNetModel(nn.Module):
         self.residual_channels = residual_channels
         self.skip_channels = skip_channels
         self.in_classes = in_classes
+        self.out_classes = out_classes
         self.kernel_size = kernel_size
         self.dtype = dtype
 
