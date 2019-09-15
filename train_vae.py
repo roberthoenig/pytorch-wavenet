@@ -65,12 +65,15 @@ n_z_samples = config["n_z_samples"]
 type = config.get("type", "categorical")
 
 if type == "categorical":
+    hard_gumbel_softmax = train_args.get("hard_gumbel_softmax", False)
     gumbel_softmax_temperature  = train_args["gumbel_softmax_temperature"]
-    temp_min = train_args["temp_min"]
-    anneal_rate = train_args["anneal_rate"]
+    if not hard_gumbel_softmax:
+        temp_min = train_args["temp_min"]
+        anneal_rate = train_args["anneal_rate"]
     model = VAE(
         WaveNetEncoder(encoder_wavenet_args),
         WaveNetDecoder(decoder_wavenet_args),
+        hard_gumbel_softmax=hard_gumbel_softmax,
     )
 elif type == "gaussian":
     use_continuous_one_hot = config["use_continuous_one_hot"]
@@ -126,7 +129,7 @@ for current_epoch in range(epochs):
         x = x.long().to(device)
         
         if type == "categorical":
-            if step % 100 == 0:
+            if step % 100 == 0 and not hard_gumbel_softmax:
                 gumbel_softmax_temperature = np.maximum(1. - anneal_rate * step, temp_min)
             p_x, q_z = model(x, gumbel_softmax_temperature)
             loss = model.loss(p_x, x, q_z)
