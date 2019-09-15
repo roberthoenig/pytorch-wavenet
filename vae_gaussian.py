@@ -4,11 +4,11 @@ import torch.nn.functional as F
 from wavenet_model import *
 
 class GaussianVAE(nn.Module):
-    def __init__(self, encoder, decoder, scale=1.):
+    def __init__(self, encoder, decoder, n_z_samples=1):
         super().__init__()
         self.encoder = encoder
         self.decoder = decoder
-        self.scale = scale
+        self.n_z_samples = n_z_samples
 
     def encode(self, x):
         '''
@@ -36,6 +36,8 @@ class GaussianVAE(nn.Module):
                  mu, logvar: tuple((n_batches, length); mu, log_variance) 
         '''
         mu, logvar = self.encode(x)
+        mu = mu.repeat(self.n_z_samples, 1, 1)
+        logvar = logvar.repeat(self.n_z_samples, 1, 1)
         z = self.reparameterize(mu, logvar)
         p_x = self.decode(z)
         return p_x, mu, logvar
@@ -47,6 +49,7 @@ class GaussianVAE(nn.Module):
         mu, logvar: tuple((n_batches, length); mu, log_variance) 
         return: loss with dtype float
         '''
+        x = x.repeat(self.n_z_samples, 1)
         cross_entropy = F.cross_entropy(p_x, x, reduction='sum') / x.size(0)
         kl_divergence = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp()) / x.size(0)
         return cross_entropy + kl_divergence

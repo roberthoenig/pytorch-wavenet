@@ -61,6 +61,7 @@ device_name = config["device"]
 gpu_index = config["gpu_index"]
 dataset_path = config["dataset_path"]
 load_path = config["load_path"]
+n_z_samples = config["n_z_samples"]
 type = config.get("type", "categorical")
 
 if type == "categorical":
@@ -76,6 +77,7 @@ elif type == "gaussian":
     model = GaussianVAE(
         GaussianWaveNetEncoder(encoder_wavenet_args, use_continuous_one_hot),
         GaussianWaveNetDecoder(decoder_wavenet_args, use_continuous_one_hot),
+        n_z_samples = n_z_samples
     )
 
 dataset = AudioDataset(dataset_path, model.encoder.wavenet.receptive_field*4)        
