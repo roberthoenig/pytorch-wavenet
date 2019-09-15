@@ -107,11 +107,11 @@ class GaussianWaveNetDecoder(nn.Module):
             self.continuous_to_one_hot = ContinuousToOneHot(wavenet_args["in_classes"])
 
     def forward(self, input):
-        padded_input = F.pad(input, (self.padding_left, 0))
+        padded_input = F.pad(input.flip(-1), (self.padding_left, 0))
         if self.use_continuous_one_hot:
             one_hot_padded_input = self.continuous_to_one_hot(padded_input)
         else:
             one_hot_padded_input = padded_input
         padded_output = self.wavenet.wavenet(one_hot_padded_input, self.wavenet.wavenet_dilate)
         output = padded_output[:, :, -input.size(-1):]
-        return output
+        return output.flip(-1)
