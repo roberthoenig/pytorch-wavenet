@@ -101,7 +101,7 @@ class WaveNetDecoder(nn.Module):
         self.is_input_one_hot = True
 
     def forward(self, input):
-        padded_input = F.pad(input, (self.padding_left, 0))
+        padded_input = F.pad(input.flip(-1), (self.padding_left, 0))
         if self.is_input_one_hot:
             padded_output = self.wavenet.wavenet(padded_input, self.wavenet.wavenet_dilate)
         else:
@@ -110,4 +110,4 @@ class WaveNetDecoder(nn.Module):
             padded_output = self.wavenet.wavenet(one_hot_padded_input, self.wavenet.wavenet_dilate)
             
         output = padded_output[:, :, -input.size(-1):]
-        return output
+        return output.flip(-1)
