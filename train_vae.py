@@ -96,10 +96,11 @@ clip = None
 if not load_path == "":
     (_, optimizer_state_dict, continue_training_at_step) = load_checkpoint(load_path, model)
 
+model = nn.DataParallel(model)
 pin_memory = False
 device = torch.device(device_name)
 if not device_name == "cpu":
-    torch.cuda.set_device(gpu_index)
+    # torch.cuda.set_device(gpu_index)
     torch.set_default_tensor_type(torch.cuda.FloatTensor)
     model = model.to(device)
     pin_memory = True
@@ -132,10 +133,10 @@ for current_epoch in range(epochs):
             if step % 100 == 0 and not hard_gumbel_softmax:
                 gumbel_softmax_temperature = np.maximum(1. - anneal_rate * step, temp_min)
             p_x, q_z = model(x, gumbel_softmax_temperature)
-            loss = model.loss(p_x, x, q_z)
+            loss = model.module.loss(p_x, x, q_z)
         elif type == "gaussian":
             p_x, mu, logvar = model(x)
-            loss = model.loss(p_x, x, mu, logvar)
+            loss = model.module.loss(p_x, x, mu, logvar)
         
         optimizer.zero_grad()
         loss.backward()
