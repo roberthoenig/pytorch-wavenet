@@ -52,7 +52,7 @@ class GaussianVAE(nn.Module):
         x = x.repeat(self.n_z_samples, 1)
         cross_entropy = F.cross_entropy(p_x, x, reduction='sum') / x.size(0)
         kl_divergence = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp()) / x.size(0)
-        return cross_entropy + kl_divergence
+        return cross_entropy + kl_divergence, cross_entropy, kl_divergence
 
 class GaussianWaveNetEncoder(nn.Module):
     def __init__(self, wavenet_args, use_continuous_one_hot=True):
@@ -98,20 +98,25 @@ class ContinuousToOneHot(nn.Module):
         return continuous_one_hot.transpose(1, 2)
 
 class GaussianWaveNetDecoder(nn.Module):
-    def __init__(self, wavenet_args, use_continuous_one_hot=True):
+    def __init__(self, wavenet_args, use_continuous_one_hot=True, flip_decoder=True):
         super().__init__()
         self.wavenet = WaveNetModel(**wavenet_args)
         self.padding_left = self.wavenet.receptive_field
         self.use_continuous_one_hot = use_continuous_one_hot
+        self.flip_decoder = flip_decoder
         if self.use_continuous_one_hot:
             self.continuous_to_one_hot = ContinuousToOneHot(wavenet_args["in_classes"])
 
     def forward(self, input):
-        padded_input = F.pad(input.flip(-1), (self.padding_left, 0))
+        if self.flip_decoder:
+            input = input.flip(-1)
+        padded_input = F.pad(input, (self.padding_left, 0))
         if self.use_continuous_one_hot:
             one_hot_padded_input = self.continuous_to_one_hot(padded_input)
         else:
             one_hot_padded_input = padded_input
         padded_output = self.wavenet.wavenet(one_hot_padded_input, self.wavenet.wavenet_dilate)
         output = padded_output[:, :, -input.size(-1):]
-        return output.flip(-1)
+        if self.flip_decoder:
+            output = output.flip(-1)
+        return output
