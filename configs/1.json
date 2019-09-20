@@ -12,7 +12,7 @@
     },
     "train_args": {
         "batch_size": 8,
-        "epochs": 10,
+        "epochs": 20,
         "continue_training_at_step": 0,
         "snapshot_name": "slow_linear_anneal_large_lr4",
         "snapshot_interval": 2000,

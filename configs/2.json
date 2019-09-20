@@ -1,0 +1,40 @@
+{
+    "encoder_wavenet_args": {
+        "layers": 6,
+        "blocks": 2,
+        "dilation_channels": 32,
+        "residual_channels": 32,
+        "skip_channels": 128,
+        "end_channels": 128,
+        "in_classes": 256,
+        "out_classes": 10,
+        "bias": true
+    },
+    "decoder_wavenet_args": {
+        "layers": 6,
+        "blocks": 2,
+        "dilation_channels": 32,
+        "residual_channels": 32,
+        "skip_channels": 128,
+        "end_channels": 128,
+        "in_classes": 10,
+        "out_classes": 256,
+        "bias": true
+    },
+    "train_args": {
+        "batch_size": 8,
+        "epochs": 10,
+        "continue_training_at_step": 0,
+        "snapshot_name": "2",
+        "snapshot_interval": 2000,
+        "snapshot_path": "snapshots/2",
+        "weight_decay": 0,
+        "lr": 0.001,
+        "gumbel_softmax_temperature": 1.0,
+        "temp_min": 0.1,
+        "anneal_rate": 0.000001
+    },
+    "device": "cuda",
+    "gpu_index": 2,
+    "dataset_path": "wav_audio/wav_tensor.pt"
+}
