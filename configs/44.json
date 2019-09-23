@@ -1,18 +1,16 @@
 {
     "encoder_wavenet_args": {
-        "layers": 10,
-        "blocks": 3,
-        "dilation_channels": 32,
-        "residual_channels": 32,
-        "skip_channels": 256,
-        "end_channels": 256,
-        "in_classes": 256,
-        "out_classes": 12,
-        "bias": true
+        "num_hiddens": 768,
+        "num_residual_layers": 2,
+        "num_residual_hiddens": 768,
+        "use_kaiming_normal": true,
+        "features_filters": 256,
+        "verbose": false,
+        "num_outs": 256
     },
     "decoder_wavenet_args": {
         "layers": 10,
-        "blocks": 3,
+        "blocks": 2,
         "dilation_channels": 32,
         "residual_channels": 32,
         "skip_channels": 256,
@@ -23,7 +21,7 @@
     },
     "train_args": {
         "batch_size": 32,
-        "epochs": 10,
+        "epochs": 100,
         "continue_training_at_step": 0,
         "snapshot_interval": 2000,
         "weight_decay": 0,
@@ -32,10 +30,10 @@
         "gumbel_softmax_temperature": 1.0,
         "posterior_entropy_penalty_coeff": 0.0
     },
-    "load_path": "",
+    "load_path": "snapshots/44/44_94000",
     "device": "cuda",
     "gpu_index": 3,
     "n_z_samples": 1,
-    "dataset_path": "wav_audio/small_wav_tensor.pt",
+    "dataset_path": "wav_audio/wav_tensor.pt",
     "type": "convolutional"
 }

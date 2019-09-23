@@ -6,6 +6,10 @@ from torch.distributions.transforms import *
 from torch.distributions.uniform import Uniform
 from torch.distributions.transformed_distribution import TransformedDistribution
 
+from convolutional_encoder import ConvolutionalEncoder
+
+from util import parameter_count
+
 from wavenet_model import *
 
 
@@ -90,6 +94,17 @@ class VAE(nn.Module):
             'posterior_entropy_penalty': posterior_entropy_penalty
         }
 
+        a = .1
+        L = torch.tensor(q_z.size(1)).float()
+        log_q_z_probs = F.log_softmax(q_z, dim=1)
+        q_z_probs = F.softmax(q_z, dim=1)
+        kl_z1 = torch.sum(q_z_probs[:, :, 0] * (log_q_z_probs + torch.log(L)))
+        kl_zRest = (
+            torch.sum(q_z_probs[:, :, 1:] * (log_q_z_probs[:, :, 1:] + torch.log(L) - torch.log(1-a))) +
+            torch.sum(q_z_probs[:, :, 1:] * q_z_probs[:, :, :-1] * (torch.log(1-a) - (torch.log(L-1) + torch.log(a) + log_q_z_probs[:, :, 1:])))
+        )
+        kl_divergence = kl_z1 + kl_zRest 
+
 class WaveNetEncoder(nn.Module):
     def __init__(self, wavenet_args):
         super().__init__()
@@ -173,3 +188,13 @@ class MultimodalWaveNetEncoder(nn.Module):
         quantized_dist += 1e-12
         torch.save((quantized_dist, input, loc, scale, categorical_logits), "arrays.pt")
         return quantized_dist.transpose(-1, -2).log()
+
+class OneHotConvolutionalEncoder(ConvolutionalEncoder):
+    def __init__(self, wavenet_args):
+        super().__init__(**wavenet_args)
+        self.in_classes = wavenet_args["features_filters"]
+
+    def forward(self, input):
+        one_hot_input = torch.zeros(input.size(0), self.in_classes, input.size(1))
+        one_hot_input.scatter_(1, input.unsqueeze(1), 1.)
+        return super().forward(one_hot_input)

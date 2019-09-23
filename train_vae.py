@@ -11,7 +11,7 @@ import os
 from wavenet_model import *
 from wavenet_modules import *
 from audio_data import WavenetDataset, AudioDataset
-from vae import VAE, WaveNetEncoder, WaveNetDecoder, MultimodalWaveNetEncoder
+from vae import VAE, WaveNetEncoder, WaveNetDecoder, MultimodalWaveNetEncoder, OneHotConvolutionalEncoder
 from vae_gaussian import GaussianVAE, GaussianWaveNetEncoder, GaussianWaveNetDecoder
 from convolutional_encoder import ConvolutionalEncoder
 
@@ -21,7 +21,9 @@ import torch.utils.data
 import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
 
-# from apex import amp
+from util import parameter_count
+
+from apex import amp
 
 dtype = torch.FloatTensor
 ltype = torch.LongTensor
@@ -103,7 +105,7 @@ elif type == "convolutional":
         temp_min = train_args["temp_min"]
         anneal_rate = train_args["anneal_rate"]
     model = VAE(
-        ConvolutionalEncoder(encoder_wavenet_args),
+        OneHotConvolutionalEncoder(encoder_wavenet_args),
         WaveNetDecoder(decoder_wavenet_args, flip_decoder),
         hard_gumbel_softmax=hard_gumbel_softmax,
     ) 
@@ -115,19 +117,19 @@ elif type == "gaussian":
         n_z_samples = n_z_samples
     )
 
-dataset = AudioDataset(dataset_path, model.encoder.wavenet.receptive_field*4)        
+dataset = AudioDataset(dataset_path, model.decoder.wavenet.receptive_field*4)        
 
 print('the dataset has ' + str(len(dataset)) + ' items')
 print(f'each item has length {dataset.len_sample}')
-n_parameters = model.encoder.wavenet.parameter_count() + model.decoder.wavenet.parameter_count()
+n_encoder_params = parameter_count(model.encoder)
+n_decoder_params = parameter_count(model.decoder)
+n_parameters = n_encoder_params + n_decoder_params
 print(f'The WaveNetVAE has {n_parameters} parameters')
+print(f'The encoder has {n_encoder_params} parameters')
+print(f'The decoder has {n_decoder_params} parameters')
 
 print('start training...')
 clip = None
-
-model = nn.DataParallel(model)
-if not load_path == "":
-    (_, optimizer_state_dict, continue_training_at_step) = load_checkpoint(load_path, model)
 
 pin_memory = False
 device = torch.device(device_name)
@@ -141,6 +143,13 @@ optimizer=optim.Adam(params=model.parameters(), lr=lr, weight_decay=weight_decay
 if "optimizer_state_dict" in globals():
     optimizer.load_state_dict(optimizer_state_dict)
 
+### APEX MIXED-PRECISION
+model, optimizer = amp.initialize(model, optimizer, opt_level="O1")
+
+model = nn.DataParallel(model)
+if not load_path == "":
+    (_, optimizer_state_dict, continue_training_at_step) = load_checkpoint(load_path, model)
+
 dataloader = torch.utils.data.DataLoader(
     dataset,
     batch_size=batch_size,
@@ -152,8 +161,6 @@ writer = SummaryWriter(comment="_"+snapshot_name)
 step = continue_training_at_step
 model.train()
 
-### APEX MIXED-PRECISION
-# model, optimizer = amp.initialize(model, optimizer, opt_level="O0")
 
 print("epochs: ", epochs)
 for current_epoch in range(epochs):
@@ -162,31 +169,36 @@ for current_epoch in range(epochs):
     for x in iter(dataloader):
         x = x.long().to(device)
         
-        if type in {"categorical", "multimodal"}:
-            if step % 100 == 0 and not hard_gumbel_softmax:
-                gumbel_softmax_temperature = np.maximum(1. - anneal_rate * step, temp_min)
-            p_x, q_z = model(x, gumbel_softmax_temperature)
-            posterior_entropy_penalty_coeff_annealed = (
-                posterior_entropy_penalty_coeff if step < 10_000 else
-                posterior_entropy_penalty_coeff * max(0, 1 - (step-10_000)/10_000))
-            d = model.module.loss(p_x, x, q_z, posterior_entropy_penalty_coeff_annealed)
-            loss = d['loss']
-            cross_entropy = d['cross_entropy']
-            kl_divergence = d['kl_divergence']
-            posterior_entropy_penalty = d['posterior_entropy_penalty']
-        elif type == "gaussian":
-            p_x, mu, logvar = model(x)
-            loss, cross_entropy, kl_divergence = model.module.loss(p_x, x, mu, logvar)
-        
-        optimizer.zero_grad()
-        loss.backward()
-        # with amp.scale_loss(loss, optimizer) as scaled_loss:
-            # scaled_loss.backward()
-        loss = loss.item()
-        if clip is not None:
-            torch.nn.utils.clip_grad_norm(model.parameters(), clip)
-        optimizer.step()
-        step += 1
+        with torch.autograd.profiler.profile(enabled=False, use_cuda=True) as prof:
+            if type in {"categorical", "multimodal", "convolutional"}:
+                if step % 100 == 0 and not hard_gumbel_softmax:
+                    gumbel_softmax_temperature = np.maximum(1. - anneal_rate * step, temp_min)
+                p_x, q_z = model(x, gumbel_softmax_temperature)
+                posterior_entropy_penalty_coeff_annealed = (
+                    posterior_entropy_penalty_coeff if step < 10_000 else
+                    posterior_entropy_penalty_coeff * max(0, 1 - (step-10_000)/10_000))
+                d = model.module.loss(p_x, x, q_z, posterior_entropy_penalty_coeff_annealed)
+                loss = d['loss']
+                cross_entropy = d['cross_entropy']
+                kl_divergence = d['kl_divergence']
+                posterior_entropy_penalty = d['posterior_entropy_penalty']
+            elif type == "gaussian":
+                p_x, mu, logvar = model(x)
+                loss, cross_entropy, kl_divergence = model.module.loss(p_x, x, mu, logvar)
+            else:
+                raise Exception(f"No loss calculation is implemented for type {type}")
+            
+            optimizer.zero_grad()
+            # loss.backward()
+            with amp.scale_loss(loss, optimizer) as scaled_loss:
+                scaled_loss.backward()
+            loss = loss.item()
+            if clip is not None:
+                torch.nn.utils.clip_grad_norm(model.parameters(), clip)
+            optimizer.step()
+            step += 1
+        if prof is not None:
+            prof.export_chrome_trace("chrome_trace")
 
         if step == 100:
             toc = time.time()

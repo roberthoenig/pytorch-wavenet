@@ -35,12 +35,11 @@ import torch.nn.functional as F
 
 class ConvolutionalEncoder(nn.Module):
     
-    def __init__(self, in_channels, num_hiddens, num_residual_layers, num_residual_hiddens,
-        use_kaiming_normal, input_features_type, features_filters, sampling_rate,
-        device, verbose=False):
+    def __init__(self, num_hiddens, num_outs, num_residual_layers, num_residual_hiddens,
+        use_kaiming_normal, features_filters, verbose=False):
 
         super(ConvolutionalEncoder, self).__init__()
-
+        print(f"ConvolutionalEncoder.__init__ called with num_hiddens = {num_hiddens}")
         """
         2 preprocessing convolution layers with filter length 3
         and residual connections.
@@ -62,19 +61,19 @@ class ConvolutionalEncoder(nn.Module):
             padding=1
         )
 
-        """
-        1 strided convolution length reduction layer with filter
-        length 4 and stride 2 (downsampling the signal by a factor
-        of two).
-        """
-        self._conv_3 = Conv1DBuilder.build(
-            in_channels=num_hiddens,
-            out_channels=num_hiddens,
-            kernel_size=4,
-            stride=2, # timestep * 2
-            use_kaiming_normal=use_kaiming_normal,
-            padding=2
-        )
+        # """
+        # 1 strided convolution length reduction layer with filter
+        # length 4 and stride 2 (downsampling the signal by a factor
+        # of two).
+        # """
+        # self._conv_3 = Conv1DBuilder.build(
+        #     in_channels=num_hiddens,
+        #     out_channels=num_hiddens,
+        #     kernel_size=4,
+        #     stride=2, # timestep * 2
+        #     use_kaiming_normal=use_kaiming_normal,
+        #     padding=2
+        # )
 
         """
         2 convolutional layers with length 3 and
@@ -108,11 +107,18 @@ class ConvolutionalEncoder(nn.Module):
             num_residual_hiddens=num_residual_hiddens,
             use_kaiming_normal=use_kaiming_normal
         )
+
+        """
+        1 postprocessing convolution to obtain the desired num_outs
+        channels.
+        """
+        self._conv_out = nn.Conv1d(
+            in_channels=num_hiddens,
+            out_channels=num_outs,
+            kernel_size=3,
+            padding=1
+        )
         
-        self._input_features_type = input_features_type
-        self._features_filters = features_filters
-        self._sampling_rate = sampling_rate
-        self._device = device
         self._verbose = verbose
 
     def forward(self, inputs):
@@ -127,9 +133,11 @@ class ConvolutionalEncoder(nn.Module):
         if self._verbose:
             ConsoleLogger.status('_conv_2 output size: {}'.format(x.size()))
         
-        x_conv_3 = F.relu(self._conv_3(x))
-        if self._verbose:
-            ConsoleLogger.status('_conv_3 output size: {}'.format(x_conv_3.size()))
+        # x_conv_3 = F.relu(self._conv_3(x))
+        # if self._verbose:
+        #     ConsoleLogger.status('_conv_3 output size: {}'.format(x_conv_3.size()))
+        x_conv_3 = x
+
 
         x_conv_4 = F.relu(self._conv_4(x_conv_3)) + x_conv_3
         if self._verbose:
@@ -139,8 +147,12 @@ class ConvolutionalEncoder(nn.Module):
         if self._verbose:
             ConsoleLogger.status('x_conv_5 output size: {}'.format(x_conv_5.size()))
 
-        x = self._residual_stack(x_conv_5) + x_conv_5
+        x_residual_stack = self._residual_stack(x_conv_5) + x_conv_5
         if self._verbose:
-            ConsoleLogger.status('_residual_stack output size: {}'.format(x.size()))
+            ConsoleLogger.status('_residual_stack output size: {}'.format(x_residual_stack.size()))
+
+        x = self._conv_out(x_residual_stack)
+        if self._verbose:
+            ConsoleLogger.status('_conv_out output size: {}'.format(x.size()))
 
         return x
