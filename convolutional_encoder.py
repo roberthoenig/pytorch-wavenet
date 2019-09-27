@@ -36,7 +36,7 @@ import torch.nn.functional as F
 class ConvolutionalEncoder(nn.Module):
     
     def __init__(self, num_hiddens, num_outs, num_residual_layers, num_residual_hiddens,
-        use_kaiming_normal, features_filters, verbose=False):
+        use_kaiming_normal, features_filters, verbose=False, use_dilation=False):
 
         super(ConvolutionalEncoder, self).__init__()
         print(f"ConvolutionalEncoder.__init__ called with num_hiddens = {num_hiddens}")
@@ -44,13 +44,14 @@ class ConvolutionalEncoder(nn.Module):
         2 preprocessing convolution layers with filter length 3
         and residual connections.
         """
+        dilation_base = 2 if use_dilation else 1
 
         self._conv_1 = Conv1DBuilder.build(
             in_channels=features_filters,
             out_channels=num_hiddens,
             kernel_size=3,
             use_kaiming_normal=use_kaiming_normal,
-            padding=1
+            dilation=dilation_base**0,
         )
 
         self._conv_2 = Conv1DBuilder.build(
@@ -58,7 +59,7 @@ class ConvolutionalEncoder(nn.Module):
             out_channels=num_hiddens,
             kernel_size=3,
             use_kaiming_normal=use_kaiming_normal,
-            padding=1
+            dilation = dilation_base**1
         )
 
         # """
@@ -85,7 +86,7 @@ class ConvolutionalEncoder(nn.Module):
             out_channels=num_hiddens,
             kernel_size=3,
             use_kaiming_normal=use_kaiming_normal,
-            padding=1
+            dilation = dilation_base**2
         )
 
         self._conv_5 = Conv1DBuilder.build(
@@ -93,7 +94,7 @@ class ConvolutionalEncoder(nn.Module):
             out_channels=num_hiddens,
             kernel_size=3,
             use_kaiming_normal=use_kaiming_normal,
-            padding=1
+            dilation = dilation_base**3
         )
 
         """
@@ -105,7 +106,9 @@ class ConvolutionalEncoder(nn.Module):
             num_hiddens=num_hiddens,
             num_residual_layers=num_residual_layers,
             num_residual_hiddens=num_residual_hiddens,
-            use_kaiming_normal=use_kaiming_normal
+            use_kaiming_normal=use_kaiming_normal,
+            init_dilation = dilation_base**4,
+            dilation_base = dilation_base
         )
 
         """

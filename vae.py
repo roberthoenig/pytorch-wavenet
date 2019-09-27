@@ -8,10 +8,9 @@ from torch.distributions.transformed_distribution import TransformedDistribution
 
 from convolutional_encoder import ConvolutionalEncoder
 
-from util import parameter_count
-
 from wavenet_model import *
 
+from wavenet_vocoder import WaveNet
 
 def sample_gumbel(shape, eps=1e-20):
     U = torch.rand(shape)
@@ -64,6 +63,13 @@ class VAE(nn.Module):
         '''
         return self.decoder(z)
 
+    def decode(self, z, x):
+        '''
+        z: (n_batches, categorical_dim, latent_dim) with dtype one_hot over output_dim 
+        return: (n_batches, output_dim, length) with dtype one_hot over output_dim 
+        '''
+        return self.decoder(z, x)
+
     def forward(self, x, temperature):
         '''
         x: as expected by `encode` 
@@ -72,20 +78,48 @@ class VAE(nn.Module):
         '''
         q_z = self.encode(x)
         z = gumbel_softmax(q_z, temperature, self.hard_gumbel_softmax)
-        p_x = self.decode(z)
+        if type(self.decoder) == BetterWaveNetDecoder:
+            p_x = self.decode(z, x)
+        else:
+            p_x = self.decode(z)
         return p_x, q_z
     
-    def loss(self, p_x, x, q_z, posterior_entropy_penalty_coeff=0.0):
+    def kl_divergence_ar_prior(self, q_z, a):
+        '''
+        q_z: (n_batches, n_categorical_choices, n_latents) with dtype logits over n_categorical_choices)
+        '''
+        N = torch.tensor(q_z.size(1)).float()
+        a = torch.tensor(a)
+        log_q_z_probs = F.log_softmax(q_z, dim=1)
+        q_z_probs = F.softmax(q_z, dim=1)
+        kl_z1 = torch.sum(q_z_probs[:, :, 0] * (log_q_z_probs[:, :, 0] + torch.log(N)))
+        kl_zRest = (
+            torch.sum(q_z_probs[:, :, 1:] * (log_q_z_probs[:, :, 1:] + torch.log(N-1) - torch.log(1-a))) +
+            torch.sum(q_z_probs[:, :, 1:] * q_z_probs[:, :, :-1] * (torch.log(1-a) - (torch.log(N-1) + torch.log(a))))
+        )
+        return (kl_z1 + kl_zRest) / q_z.size(0)
+
+    def kl_divergence_uniform_prior(self, q_z):
+        '''
+        q_z: (n_batches, n_categorical_choices, n_latents) with dtype logits over n_categorical_choices)
+        '''
+        log_ratio = F.log_softmax(q_z, dim=1) + torch.log(torch.tensor(q_z.size(1)).float())
+        return torch.sum(F.softmax(q_z, dim=1) * log_ratio) / q_z.size(0)
+
+    def loss(self, p_x, x, q_z, posterior_entropy_penalty_coeff=0.0, ar_factor=None):
         '''
         p_x: (n_batches, output_dim, length) with dtype logits over output_dim
         x: (n_batches, length) with dtype [output_dim]
         q_z: (n_batches, categorical_dim, latent_dim) with dtype logits over categorical_dim)
         return: loss with dtype float
         '''
+        # print("p_x.size()", p_x.size())
+        # print("x.size()", x.size())
+        # print("x.size()", x.size())
+        # print("q_z.size()", q_z.size())
         cross_entropy = F.cross_entropy(p_x, x, reduction='sum') / x.size(0)
-        log_ratio = F.log_softmax(q_z, dim=1) + torch.log(torch.tensor(q_z.size(1)).float())
-        kl_divergence = torch.sum(F.softmax(q_z, dim=1) * log_ratio) / x.size(0)
-        posterior_entropy_penalty = Categorical(logits=q_z.transpose(1 ,2)).entropy().sum() / x.size(0)
+        kl_divergence = self.kl_divergence_uniform_prior(q_z) if ar_factor is None else self.kl_divergence_ar_prior(q_z, ar_factor)
+        posterior_entropy_penalty = Categorical(logits=q_z.transpose(1 ,2)).entropy().sum() / q_z.size(0)
         
         return {
             'loss': cross_entropy + kl_divergence + posterior_entropy_penalty_coeff * posterior_entropy_penalty,
@@ -94,16 +128,20 @@ class VAE(nn.Module):
             'posterior_entropy_penalty': posterior_entropy_penalty
         }
 
-        a = .1
-        L = torch.tensor(q_z.size(1)).float()
-        log_q_z_probs = F.log_softmax(q_z, dim=1)
-        q_z_probs = F.softmax(q_z, dim=1)
-        kl_z1 = torch.sum(q_z_probs[:, :, 0] * (log_q_z_probs + torch.log(L)))
-        kl_zRest = (
-            torch.sum(q_z_probs[:, :, 1:] * (log_q_z_probs[:, :, 1:] + torch.log(L) - torch.log(1-a))) +
-            torch.sum(q_z_probs[:, :, 1:] * q_z_probs[:, :, :-1] * (torch.log(1-a) - (torch.log(L-1) + torch.log(a) + log_q_z_probs[:, :, 1:])))
-        )
-        kl_divergence = kl_z1 + kl_zRest 
+class BetterWaveNetDecoder(nn.Module):
+    def __init__(self, wavenet_args):
+        super().__init__()
+        self.wavenet = WaveNet(**wavenet_args)
+
+    def forward(self, one_hot_z, x):
+        output = self.wavenet.forward(x=self.one_hot(x), c=one_hot_z)
+        p_x = torch.cat([torch.ones(output.size(0), output.size(1), 1), output[:, :, :-1]], dim=-1)
+        return p_x
+
+    def one_hot(self, input):
+        one_hot_input = torch.zeros(input.size(0), self.wavenet.out_channels, input.size(1), device=input.device)
+        one_hot_input.scatter_(1, input.unsqueeze(1), 1.)
+        return one_hot_input
 
 class WaveNetEncoder(nn.Module):
     def __init__(self, wavenet_args):

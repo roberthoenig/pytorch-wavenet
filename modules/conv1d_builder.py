@@ -30,14 +30,17 @@ import torch.nn as nn
 class Conv1DBuilder(object):
 
     @staticmethod
-    def build(in_channels, out_channels, kernel_size, stride=1, padding=0, use_kaiming_normal=False):
+    def build(in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, use_kaiming_normal=False, bias=True):
         conv = nn.Conv1d(
             in_channels=in_channels,
             out_channels=out_channels,
             kernel_size=kernel_size,
             stride=stride,
-            padding=padding
+            dilation=dilation,
+            padding = ((kernel_size - 1) * dilation) // 2,
+            bias=bias
         )
+        print("dilation: ", dilation)
         if use_kaiming_normal:
             conv = nn.utils.weight_norm(conv)
             nn.init.kaiming_normal_(conv.weight)

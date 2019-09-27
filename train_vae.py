@@ -11,7 +11,7 @@ import os
 from wavenet_model import *
 from wavenet_modules import *
 from audio_data import WavenetDataset, AudioDataset
-from vae import VAE, WaveNetEncoder, WaveNetDecoder, MultimodalWaveNetEncoder, OneHotConvolutionalEncoder
+from vae import VAE, WaveNetEncoder, WaveNetDecoder, MultimodalWaveNetEncoder, OneHotConvolutionalEncoder, BetterWaveNetDecoder
 from vae_gaussian import GaussianVAE, GaussianWaveNetEncoder, GaussianWaveNetDecoder
 from convolutional_encoder import ConvolutionalEncoder
 
@@ -73,40 +73,37 @@ if not os.path.exists(snapshot_path):
     os.makedirs(snapshot_path)
     print(f"creating path {snapshot_path}")
 
-if type == "categorical":
+if type in {"categorical", "multimodal", "convolutional", "betterwavenet"}:
+    ar_factor = train_args.get("ar_factor", None)
     hard_gumbel_softmax = train_args.get("hard_gumbel_softmax", False)
     gumbel_softmax_temperature = train_args["gumbel_softmax_temperature"]
     posterior_entropy_penalty_coeff = train_args["posterior_entropy_penalty_coeff"]
     if not hard_gumbel_softmax:
         temp_min = train_args["temp_min"]
         anneal_rate = train_args["anneal_rate"]
+
+if type == "categorical":
     model = VAE(
         WaveNetEncoder(encoder_wavenet_args),
         WaveNetDecoder(decoder_wavenet_args, flip_decoder),
         hard_gumbel_softmax=hard_gumbel_softmax,
     )
 elif type == "multimodal":
-    hard_gumbel_softmax = train_args.get("hard_gumbel_softmax", False)
-    gumbel_softmax_temperature = train_args["gumbel_softmax_temperature"]
-    posterior_entropy_penalty_coeff = train_args["posterior_entropy_penalty_coeff"]
-    if not hard_gumbel_softmax:
-        temp_min = train_args["temp_min"]
-        anneal_rate = train_args["anneal_rate"]
     model = VAE(
         MultimodalWaveNetEncoder(encoder_wavenet_args),
         WaveNetDecoder(decoder_wavenet_args, flip_decoder),
         hard_gumbel_softmax=hard_gumbel_softmax,
     ) 
 elif type == "convolutional":
-    hard_gumbel_softmax = train_args.get("hard_gumbel_softmax", False)
-    gumbel_softmax_temperature = train_args["gumbel_softmax_temperature"]
-    posterior_entropy_penalty_coeff = train_args["posterior_entropy_penalty_coeff"]
-    if not hard_gumbel_softmax:
-        temp_min = train_args["temp_min"]
-        anneal_rate = train_args["anneal_rate"]
     model = VAE(
         OneHotConvolutionalEncoder(encoder_wavenet_args),
         WaveNetDecoder(decoder_wavenet_args, flip_decoder),
+        hard_gumbel_softmax=hard_gumbel_softmax,
+    ) 
+elif type == "betterwavenet":
+    model = VAE(
+        OneHotConvolutionalEncoder(encoder_wavenet_args),
+        BetterWaveNetDecoder(decoder_wavenet_args),
         hard_gumbel_softmax=hard_gumbel_softmax,
     ) 
 elif type == "gaussian":
@@ -116,6 +113,8 @@ elif type == "gaussian":
         GaussianWaveNetDecoder(decoder_wavenet_args, use_continuous_one_hot, flip_decoder),
         n_z_samples = n_z_samples
     )
+else:
+    raise Exception(f"Network type {type} not implemented.")
 
 dataset = AudioDataset(dataset_path, model.decoder.wavenet.receptive_field*4)        
 
@@ -144,7 +143,7 @@ if "optimizer_state_dict" in globals():
     optimizer.load_state_dict(optimizer_state_dict)
 
 ### APEX MIXED-PRECISION
-model, optimizer = amp.initialize(model, optimizer, opt_level="O1")
+# model, optimizer = amp.initialize(model, optimizer, opt_level="O1")
 
 model = nn.DataParallel(model)
 if not load_path == "":
@@ -170,14 +169,14 @@ for current_epoch in range(epochs):
         x = x.long().to(device)
         
         with torch.autograd.profiler.profile(enabled=False, use_cuda=True) as prof:
-            if type in {"categorical", "multimodal", "convolutional"}:
+            if type in {"categorical", "multimodal", "convolutional", "betterwavenet"}:
                 if step % 100 == 0 and not hard_gumbel_softmax:
                     gumbel_softmax_temperature = np.maximum(1. - anneal_rate * step, temp_min)
                 p_x, q_z = model(x, gumbel_softmax_temperature)
                 posterior_entropy_penalty_coeff_annealed = (
                     posterior_entropy_penalty_coeff if step < 10_000 else
                     posterior_entropy_penalty_coeff * max(0, 1 - (step-10_000)/10_000))
-                d = model.module.loss(p_x, x, q_z, posterior_entropy_penalty_coeff_annealed)
+                d = model.module.loss(p_x, x, q_z, posterior_entropy_penalty_coeff_annealed, ar_factor)
                 loss = d['loss']
                 cross_entropy = d['cross_entropy']
                 kl_divergence = d['kl_divergence']
@@ -189,9 +188,9 @@ for current_epoch in range(epochs):
                 raise Exception(f"No loss calculation is implemented for type {type}")
             
             optimizer.zero_grad()
-            # loss.backward()
-            with amp.scale_loss(loss, optimizer) as scaled_loss:
-                scaled_loss.backward()
+            loss.backward()
+            # with amp.scale_loss(loss, optimizer) as scaled_loss:
+                # scaled_loss.backward()
             loss = loss.item()
             if clip is not None:
                 torch.nn.utils.clip_grad_norm(model.parameters(), clip)
@@ -213,6 +212,7 @@ for current_epoch in range(epochs):
             bits_per_dimension = ((kl_divergence+cross_entropy)/math.log(2)) / x.size(-1)
             writer.add_scalar('Loss/train', loss, global_step=step)
             writer.add_scalar('bits/dimension', bits_per_dimension, global_step=step)
+            print("bits_per_dimension", bits_per_dimension)
             writer.add_scalar('KL divergence', kl_divergence, global_step=step)
             writer.add_scalar('cross entropy', cross_entropy, global_step=step)
             writer.add_scalar('posterior entropy penalty', posterior_entropy_penalty, global_step=step)

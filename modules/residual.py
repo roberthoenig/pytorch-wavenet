@@ -26,25 +26,23 @@
  #####################################################################################
 
 import torch.nn as nn
+from modules.conv1d_builder import Conv1DBuilder
 
 
 class Residual(nn.Module):
 
-    def __init__(self, in_channels, num_hiddens, num_residual_hiddens, use_kaiming_normal):
+    def __init__(self, in_channels, num_hiddens, num_residual_hiddens, use_kaiming_normal, dilation):
         super(Residual, self).__init__()
         
         relu_1 = nn.ReLU(True)
-        conv_1 = nn.Conv1d(
+        conv_1 = Conv1DBuilder.build(
             in_channels=in_channels,
             out_channels=num_residual_hiddens,
             kernel_size=3,
-            stride=1,
-            padding=1,
+            use_kaiming_normal=use_kaiming_normal,
+            dilation = dilation,
             bias=False
         )
-        if use_kaiming_normal:
-            conv_1 = nn.utils.weight_norm(conv_1)
-            nn.init.kaiming_normal_(conv_1.weight)
 
         relu_2 = nn.ReLU(True)
         conv_2 = nn.Conv1d(
@@ -52,7 +50,7 @@ class Residual(nn.Module):
             out_channels=num_hiddens,
             kernel_size=1,
             stride=1,
-            bias=False
+            bias=False,
         )
         if use_kaiming_normal:
             conv_2 = nn.utils.weight_norm(conv_2)
