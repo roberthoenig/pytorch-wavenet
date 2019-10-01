@@ -1,0 +1,49 @@
+{
+    "encoder_wavenet_args": {
+        "num_hiddens": 768,
+        "num_residual_layers": 2,
+        "num_residual_hiddens": 768,
+        "use_kaiming_normal": true,
+        "features_filters": 256,
+        "verbose": false,
+        "num_outs": 256,
+        "use_dilation": false
+    },
+    "decoder_wavenet_args": {
+        "out_channels": 256,
+        "layers": 20,
+        "stacks": 2,
+        "residual_channels": 512,
+        "gate_channels": 512,
+        "skip_out_channels": 512,
+        "kernel_size": 3,
+        "dropout": 0.05,
+        "cin_channels": 256,
+        "gin_channels": -1,
+        "upsample_conditional_features": false,
+        "freq_axis_kernel_size": 1,
+        "weight_normalization": true,
+        "scalar_input": false,
+        "legacy": false
+    },
+    "train_args": {
+        "batch_size": 16,
+        "epochs": 100,
+        "continue_training_at_step": 0,
+        "snapshot_interval": 2000,
+        "weight_decay": 0,
+        "lr": 0.0001,
+        "hard_gumbel_softmax": true,
+        "gumbel_softmax_temperature": 1.0,
+        "posterior_entropy_penalty_coeff": 0.0,
+        "free_bits_per_dimension": 0.5
+    },
+    "data_length": 16384,
+    "use_apex": false,
+    "load_path": "",
+    "device": "cuda",
+    "gpu_index": 3,
+    "n_z_samples": 1,
+    "dataset_path": "datasets/classical_music_40_hours.pt",
+    "type": "unstrided_betterwavenet"
+}

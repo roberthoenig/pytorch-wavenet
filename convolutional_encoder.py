@@ -40,53 +40,44 @@ class ConvolutionalEncoder(nn.Module):
 
         super(ConvolutionalEncoder, self).__init__()
         print(f"ConvolutionalEncoder.__init__ called with num_hiddens = {num_hiddens}")
-        """
-        2 preprocessing convolution layers with filter length 3
-        and residual connections.
-        """
+
         dilation_base = 2 if use_dilation else 1
+        self.kernel_size = 3
 
         self._conv_1 = Conv1DBuilder.build(
             in_channels=features_filters,
             out_channels=num_hiddens,
-            kernel_size=3,
+            kernel_size=self.kernel_size,
             use_kaiming_normal=use_kaiming_normal,
             dilation=dilation_base**0,
+            stride=self.kernel_size
         )
 
         self._conv_2 = Conv1DBuilder.build(
             in_channels=num_hiddens,
             out_channels=num_hiddens,
-            kernel_size=3,
+            kernel_size=self.kernel_size,
             use_kaiming_normal=use_kaiming_normal,
-            dilation = dilation_base**1
+            dilation = dilation_base**1,
+            stride=1
         )
 
-        # """
-        # 1 strided convolution length reduction layer with filter
-        # length 4 and stride 2 (downsampling the signal by a factor
-        # of two).
-        # """
-        # self._conv_3 = Conv1DBuilder.build(
-        #     in_channels=num_hiddens,
-        #     out_channels=num_hiddens,
-        #     kernel_size=4,
-        #     stride=2, # timestep * 2
-        #     use_kaiming_normal=use_kaiming_normal,
-        #     padding=2
-        # )
-
-        """
-        2 convolutional layers with length 3 and
-        residual connections.
-        """
-
-        self._conv_4 = Conv1DBuilder.build(
+        self._conv_3 = Conv1DBuilder.build(
             in_channels=num_hiddens,
             out_channels=num_hiddens,
             kernel_size=3,
             use_kaiming_normal=use_kaiming_normal,
-            dilation = dilation_base**2
+            dilation = dilation_base**2,
+            stride=self.kernel_size
+        )
+
+        self._conv_4 = Conv1DBuilder.build(
+            in_channels=num_hiddens,
+            out_channels=num_hiddens,
+            kernel_size=self.kernel_size,
+            use_kaiming_normal=use_kaiming_normal,
+            dilation = dilation_base**3,
+            stride=1
         )
 
         self._conv_5 = Conv1DBuilder.build(
@@ -94,7 +85,8 @@ class ConvolutionalEncoder(nn.Module):
             out_channels=num_hiddens,
             kernel_size=3,
             use_kaiming_normal=use_kaiming_normal,
-            dilation = dilation_base**3
+            dilation = dilation_base**4,
+            stride=self.kernel_size
         )
 
         """
@@ -109,6 +101,15 @@ class ConvolutionalEncoder(nn.Module):
             use_kaiming_normal=use_kaiming_normal,
             init_dilation = dilation_base**4,
             dilation_base = dilation_base
+        )
+
+        self._conv_post_residual_stack = Conv1DBuilder.build(
+            in_channels=num_hiddens,
+            out_channels=num_hiddens,
+            kernel_size=3,
+            use_kaiming_normal=use_kaiming_normal,
+            dilation = dilation_base**5,
+            stride=self.kernel_size
         )
 
         """
@@ -132,29 +133,33 @@ class ConvolutionalEncoder(nn.Module):
         if self._verbose:
             ConsoleLogger.status('x_conv_1 output size: {}'.format(x_conv_1.size()))
 
-        x = F.relu(self._conv_2(x_conv_1)) + x_conv_1
+        x_conv_2 = F.relu(self._conv_2(x_conv_1)) + x_conv_1
         if self._verbose:
-            ConsoleLogger.status('_conv_2 output size: {}'.format(x.size()))
+            ConsoleLogger.status('_conv_2 output size: {}'.format(x_conv_2.size()))
         
-        # x_conv_3 = F.relu(self._conv_3(x))
-        # if self._verbose:
-        #     ConsoleLogger.status('_conv_3 output size: {}'.format(x_conv_3.size()))
-        x_conv_3 = x
+        x_conv_3 = F.relu(self._conv_3(x_conv_2))
+        if self._verbose:
+            ConsoleLogger.status('_conv_3 output size: {}'.format(x_conv_3.size()))
+        # x_conv_3 = x
 
 
         x_conv_4 = F.relu(self._conv_4(x_conv_3)) + x_conv_3
         if self._verbose:
             ConsoleLogger.status('_conv_4 output size: {}'.format(x_conv_4.size()))
 
-        x_conv_5 = F.relu(self._conv_5(x_conv_4)) + x_conv_4
+        x_conv_5 = F.relu(self._conv_5(x_conv_4))
         if self._verbose:
             ConsoleLogger.status('x_conv_5 output size: {}'.format(x_conv_5.size()))
 
-        x_residual_stack = self._residual_stack(x_conv_5) + x_conv_5
+        x_residual_stack = self._residual_stack(x_conv_5)
         if self._verbose:
             ConsoleLogger.status('_residual_stack output size: {}'.format(x_residual_stack.size()))
 
-        x = self._conv_out(x_residual_stack)
+        x_conv_post_residual_stack = self._conv_post_residual_stack(x_residual_stack)
+        if self._verbose:
+            ConsoleLogger.status('_conv_post_residual_stack output size: {}'.format(x_conv_post_residual_stack.size()))
+
+        x = self._conv_out(x_conv_post_residual_stack)
         if self._verbose:
             ConsoleLogger.status('_conv_out output size: {}'.format(x.size()))
 

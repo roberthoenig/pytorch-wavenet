@@ -1,0 +1,5 @@
+mfcc behaves like a convolution: winlen <-> kernel_size, winstep <-> stride
+this means that we can reverse mfcc with respect to the input shape with a transposed
+convolution that takes parameters (kernel_size=winlen, winstep=stride)
+it also means that the input should have a length that is a multiple of stride, since otherwise,
+the filters created by mfcc won't cover all input values.

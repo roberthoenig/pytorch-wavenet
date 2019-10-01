@@ -31,17 +31,19 @@ from modules.conv1d_builder import Conv1DBuilder
 
 class Residual(nn.Module):
 
-    def __init__(self, in_channels, num_hiddens, num_residual_hiddens, use_kaiming_normal, dilation):
+    def __init__(self, in_channels, num_hiddens, num_residual_hiddens, use_kaiming_normal, dilation, pad_right_only):
         super(Residual, self).__init__()
-        
+        self.kernel_size=3
         relu_1 = nn.ReLU(True)
+        print("dilation", dilation)
         conv_1 = Conv1DBuilder.build(
             in_channels=in_channels,
             out_channels=num_residual_hiddens,
-            kernel_size=3,
+            kernel_size=self.kernel_size,
             use_kaiming_normal=use_kaiming_normal,
             dilation = dilation,
-            bias=False
+            bias=False,
+            pad_right_only=pad_right_only
         )
 
         relu_2 = nn.ReLU(True)
@@ -50,7 +52,7 @@ class Residual(nn.Module):
             out_channels=num_hiddens,
             kernel_size=1,
             stride=1,
-            bias=False,
+            bias=False
         )
         if use_kaiming_normal:
             conv_2 = nn.utils.weight_norm(conv_2)

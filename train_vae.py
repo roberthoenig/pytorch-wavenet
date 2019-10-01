@@ -11,9 +11,10 @@ import os
 from wavenet_model import *
 from wavenet_modules import *
 from audio_data import WavenetDataset, AudioDataset
-from vae import VAE, WaveNetEncoder, WaveNetDecoder, MultimodalWaveNetEncoder, OneHotConvolutionalEncoder, BetterWaveNetDecoder
+from vae import VAE, WaveNetEncoder, WaveNetDecoder, MultimodalWaveNetEncoder, OneHotConvolutionalEncoder, BetterWaveNetDecoder, OneHotUnstridedConvolutionalEncoder
 from vae_gaussian import GaussianVAE, GaussianWaveNetEncoder, GaussianWaveNetDecoder
 from convolutional_encoder import ConvolutionalEncoder
+from mfcc_convolutional_encoder import MFCCConvolutionalEncoder
 
 import torch
 import torch.optim as optim
@@ -21,7 +22,7 @@ import torch.utils.data
 import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
 
-from util import parameter_count
+from wavenet_utils import parameter_count, get_max_free_kl_divergence
 
 from apex import amp
 
@@ -61,6 +62,8 @@ snapshot_path = f"snapshots/{snapshot_name}"
 snapshot_interval = train_args["snapshot_interval"]
 weight_decay  = train_args["weight_decay"]
 lr = train_args["lr"]
+free_bits_per_dimension = train_args["free_bits_per_dimension"]
+penalize_free_bits_linearly = train_args.get("penalize_free_bits_linearly", False)
 device_name = config["device"]
 gpu_index = config["gpu_index"]
 dataset_path = config["dataset_path"]
@@ -68,12 +71,14 @@ load_path = config["load_path"]
 n_z_samples = config["n_z_samples"]
 type = config.get("type", "categorical")
 flip_decoder = config.get("flip_decoder", True)
+use_apex = config.get("use_apex", False)
+data_length = config.get("data_length", None)
 
 if not os.path.exists(snapshot_path):
     os.makedirs(snapshot_path)
     print(f"creating path {snapshot_path}")
 
-if type in {"categorical", "multimodal", "convolutional", "betterwavenet"}:
+if type in {"categorical", "multimodal", "convolutional", "betterwavenet", "mfcc_betterwavenet", "unstrided_betterwavenet"}:
     ar_factor = train_args.get("ar_factor", None)
     hard_gumbel_softmax = train_args.get("hard_gumbel_softmax", False)
     gumbel_softmax_temperature = train_args["gumbel_softmax_temperature"]
@@ -106,6 +111,18 @@ elif type == "betterwavenet":
         BetterWaveNetDecoder(decoder_wavenet_args),
         hard_gumbel_softmax=hard_gumbel_softmax,
     ) 
+elif type == "mfcc_betterwavenet":
+    model = VAE(
+        MFCCConvolutionalEncoder(**encoder_wavenet_args),
+        BetterWaveNetDecoder(decoder_wavenet_args),
+        hard_gumbel_softmax=hard_gumbel_softmax,
+    ) 
+elif type == "unstrided_betterwavenet":
+    model = VAE(
+        OneHotUnstridedConvolutionalEncoder(encoder_wavenet_args),
+        BetterWaveNetDecoder(decoder_wavenet_args),
+        hard_gumbel_softmax=hard_gumbel_softmax,
+    ) 
 elif type == "gaussian":
     use_continuous_one_hot = config["use_continuous_one_hot"]
     model = GaussianVAE(
@@ -116,9 +133,13 @@ elif type == "gaussian":
 else:
     raise Exception(f"Network type {type} not implemented.")
 
-dataset = AudioDataset(dataset_path, model.decoder.wavenet.receptive_field*4)        
+if data_length is None:
+    receptive_field_closest_power_of_3 = int(3**math.ceil(math.log(model.decoder.wavenet.receptive_field, 3)))
+    data_length = receptive_field_closest_power_of_3 * 3
+dataset = AudioDataset(dataset_path, data_length)        
 
-print('the dataset has ' + str(len(dataset)) + ' items')
+print(f"the receptive field length is {model.decoder.wavenet.receptive_field}")
+print(f'the dataset has {str(len(dataset))}  items')
 print(f'each item has length {dataset.len_sample}')
 n_encoder_params = parameter_count(model.encoder)
 n_decoder_params = parameter_count(model.decoder)
@@ -126,6 +147,7 @@ n_parameters = n_encoder_params + n_decoder_params
 print(f'The WaveNetVAE has {n_parameters} parameters')
 print(f'The encoder has {n_encoder_params} parameters')
 print(f'The decoder has {n_decoder_params} parameters')
+print(f'The maximum free kl divergence is {get_max_free_kl_divergence(n_inputs=dataset.len_sample, free_bits_per_dimension=free_bits_per_dimension)} nats.')
 
 print('start training...')
 clip = None
@@ -143,7 +165,8 @@ if "optimizer_state_dict" in globals():
     optimizer.load_state_dict(optimizer_state_dict)
 
 ### APEX MIXED-PRECISION
-# model, optimizer = amp.initialize(model, optimizer, opt_level="O1")
+if use_apex:
+    model, optimizer = amp.initialize(model, optimizer, opt_level="O1")
 
 model = nn.DataParallel(model)
 if not load_path == "":
@@ -169,14 +192,17 @@ for current_epoch in range(epochs):
         x = x.long().to(device)
         
         with torch.autograd.profiler.profile(enabled=False, use_cuda=True) as prof:
-            if type in {"categorical", "multimodal", "convolutional", "betterwavenet"}:
+            if type in {"categorical", "multimodal", "convolutional", "betterwavenet", "mfcc_betterwavenet", "unstrided_betterwavenet"}:
                 if step % 100 == 0 and not hard_gumbel_softmax:
                     gumbel_softmax_temperature = np.maximum(1. - anneal_rate * step, temp_min)
                 p_x, q_z = model(x, gumbel_softmax_temperature)
                 posterior_entropy_penalty_coeff_annealed = (
                     posterior_entropy_penalty_coeff if step < 10_000 else
                     posterior_entropy_penalty_coeff * max(0, 1 - (step-10_000)/10_000))
-                d = model.module.loss(p_x, x, q_z, posterior_entropy_penalty_coeff_annealed, ar_factor)
+                d = model.module.loss(
+                    p_x, x, q_z, posterior_entropy_penalty_coeff_annealed,
+                    ar_factor, free_bits_per_dimension, penalize_free_bits_linearly
+                )
                 loss = d['loss']
                 cross_entropy = d['cross_entropy']
                 kl_divergence = d['kl_divergence']
@@ -188,9 +214,11 @@ for current_epoch in range(epochs):
                 raise Exception(f"No loss calculation is implemented for type {type}")
             
             optimizer.zero_grad()
-            loss.backward()
-            # with amp.scale_loss(loss, optimizer) as scaled_loss:
-                # scaled_loss.backward()
+            if use_apex:
+                with amp.scale_loss(loss, optimizer) as scaled_loss:
+                    scaled_loss.backward()
+            else:
+                loss.backward()
             loss = loss.item()
             if clip is not None:
                 torch.nn.utils.clip_grad_norm(model.parameters(), clip)
@@ -212,14 +240,9 @@ for current_epoch in range(epochs):
             bits_per_dimension = ((kl_divergence+cross_entropy)/math.log(2)) / x.size(-1)
             writer.add_scalar('Loss/train', loss, global_step=step)
             writer.add_scalar('bits/dimension', bits_per_dimension, global_step=step)
-            print("bits_per_dimension", bits_per_dimension)
             writer.add_scalar('KL divergence', kl_divergence, global_step=step)
             writer.add_scalar('cross entropy', cross_entropy, global_step=step)
             writer.add_scalar('posterior entropy penalty', posterior_entropy_penalty, global_step=step)
-            print(f"\rstep {step}, loss {loss}".ljust(70), end='\r')
-            # print("sleeping")
-            # import time
-            # time.sleep(1)
-            # print("end sleep")
+            print(f"\rstep {step}, bits/dimension {bits_per_dimension}".ljust(70), end='\r')
 
 print("finished")

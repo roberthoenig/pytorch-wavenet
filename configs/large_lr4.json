@@ -1,0 +1,27 @@
+{
+    "wavenet_args": {
+        "layers": 10,
+        "blocks": 4,
+        "dilation_channels": 32,
+        "residual_channels": 32,
+        "skip_channels": 256,
+        "end_channels": 256,
+        "output_length": 32,
+        "classes": 256,
+        "bias": true
+    },
+    "train_args": {
+        "batch_size": 8,
+        "epochs": 10,
+        "continue_training_at_step": 0,
+        "snapshot_name": "slow_anneal_temp_linear_classical_music_large_lr4",
+        "snapshot_interval": 2000,
+        "snapshot_path": "snapshots",
+        "weight_decay": 0,
+        "lr": 0.0001,
+        "gumbel_softmax_temperature": 1.0
+    },
+    "device": "cuda",
+    "gpu_index": 1
+
+}

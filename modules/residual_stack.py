@@ -33,7 +33,7 @@ import torch.nn.functional as F
 
 class ResidualStack(nn.Module):
 
-    def __init__(self, in_channels, num_hiddens, num_residual_layers, num_residual_hiddens, use_kaiming_normal, init_dilation, dilation_base):
+    def __init__(self, in_channels, num_hiddens, num_residual_layers, num_residual_hiddens, use_kaiming_normal, init_dilation, dilation_base, pad_right_only=False):
         super(ResidualStack, self).__init__()
         
         self._num_residual_layers = num_residual_layers
@@ -43,7 +43,8 @@ class ResidualStack(nn.Module):
                 num_hiddens,
                 num_residual_hiddens,
                 use_kaiming_normal,
-                init_dilation*(dilation_base**i)
+                init_dilation*(dilation_base**i),
+                pad_right_only=pad_right_only
             ) for i in range(self._num_residual_layers)]
         )
         
